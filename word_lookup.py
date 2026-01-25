@@ -578,21 +578,15 @@ class WordLookup:
             else:
                 phonetics_to_use = best_match['phonetics']
             
+            chinese_defs = best_match.get('chinese_definitions') if best_match.get('chinese_definitions') else best_match.get('definitions', [])
             result = {
                 'success': True,
-                'word': word,  # 使用用户输入的原始单词
-                'base_form': base_form if base_form and base_form != use_word else None,
+                'word': use_word,
                 'phonetic': ', '.join(phonetics_to_use) if phonetics_to_use else 'N/A',
-                'definitions': best_match['chinese_definitions'] if best_match['chinese_definitions'] else best_match['definitions'],
-                'examples': best_match['examples']
+                'chinese_definitions': chinese_defs,
+                'base_form': base_form if base_form else use_word
             }
-            
-            if ai_result:
-                result['ai_analysis'] = {
-                    'recommended_form': ai_result.get('recommended_form'),
-                    'reason': ai_result.get('reason')
-                }
-            
+
             return result
         else:
             return {
@@ -673,12 +667,12 @@ class WordLookup:
             
             result = {
                 'success': True,
-                'word': word,
-                'base_form': final_word,
+                'word': final_word,
                 'phonetic': ', '.join(phonetics_to_use[:2]) if phonetics_to_use else 'N/A',
-                'definitions': chinese_defs
+                'chinese_definitions': chinese_defs,
+                'base_form': final_word
             }
-            
+
             return result
         else:
             return {
@@ -714,21 +708,14 @@ def main():
             
             print("\n" + "-" * 60)
             if result['success']:
-                print(f"单词: {result['word']}")  # 这里显示用户输入的原始单词
-                if result['base_form']:
+                print(f"单词: {result['word']}")
+                if result.get('base_form'):
                     print(f"原形: {result['base_form']}")
                 print(f"音标: {result['phonetic']}")
                 print(f"\n中文释义:")
-                for i, definition in enumerate(result['definitions'], 1):
+                chinese_defs = result.get('chinese_definitions', [])
+                for i, definition in enumerate(chinese_defs, 1):
                     print(f"  {i}. {definition}")
-                if result['examples']:
-                    print(f"\n例句:")
-                    for i, example in enumerate(result['examples'], 1):
-                        print(f"  {i}. {example}")
-                if 'ai_analysis' in result:
-                    print(f"\nAI分析:")
-                    print(f"  推荐词形: {result['ai_analysis']['recommended_form']}")
-                    print(f"  判断理由: {result['ai_analysis']['reason']}")
             else:
                 print(f"错误: {result['message']}")
             print("-" * 60)
