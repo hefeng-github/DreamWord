@@ -4,6 +4,11 @@ import re
 from html.parser import HTMLParser
 from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass, field
+from collections import Counter
+import math
+import hashlib
+import pickle
+from pathlib import Path
 
 try:
     from nltk.stem import WordNetLemmatizer
@@ -12,6 +17,15 @@ try:
 except ImportError:
     NLTK_AVAILABLE = False
     print("警告: nltk未安装，词形还原功能将不可用。请运行 'pip install nltk' 来启用此功能。")
+
+try:
+    from sentence_transformers import SentenceTransformer
+    import torch
+    SENTENCE_TRANSFORMER_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMER_AVAILABLE = False
+    print("提示: sentence-transformers未安装，将使用基础匹配算法。")
+    print("要启用智能语义匹配，请运行: pip install sentence-transformers torch")
 
 
 @dataclass
@@ -265,12 +279,24 @@ class MDXParser(HTMLParser):
 
 
 class WordLookup:
-    """单词查询类"""
+    """单词查询类 - 支持智能语义匹配"""
 
-    def __init__(self):
+    # 默认模型名称（轻量级，速度快）
+    DEFAULT_MODEL = 'all-MiniLM-L6-v2'
+
+    def __init__(self, use_semantic_search: bool = True, model_name: str = None):
         self.db_dir = os.path.join(os.path.dirname(__file__), 'databases')
         self.word_details_path = os.path.join(self.db_dir, 'word_details.db')
         self.lemmatizer = self._init_lemmatizer()
+
+        # 初始化语义模型
+        self.use_semantic_search = use_semantic_search and SENTENCE_TRANSFORMER_AVAILABLE
+        self.model_name = model_name or self.DEFAULT_MODEL
+        self.semantic_model = None
+        self.embedding_cache = {}
+
+        if self.use_semantic_search:
+            self._init_semantic_model()
 
     def _init_lemmatizer(self) -> Optional[WordNetLemmatizer]:
         """初始化词形还原器"""
@@ -290,6 +316,118 @@ class WordLookup:
         except Exception as e:
             print(f"初始化词形还原器失败: {e}")
             return None
+
+    def _init_semantic_model(self):
+        """初始化语义模型"""
+        try:
+            print(f"正在加载语义模型 ({self.model_name})...")
+            print("首次运行会自动下载模型（约200MB），请稍候...")
+
+            # 加载模型
+            self.semantic_model = SentenceTransformer(self.model_name)
+
+            # 尝试加载缓存
+            cache_file = self._get_cache_file()
+            if cache_file.exists():
+                try:
+                    with open(cache_file, 'rb') as f:
+                        self.embedding_cache = pickle.load(f)
+                    print(f"✓ 已加载 {len(self.embedding_cache)} 条缓存向量")
+                except Exception as e:
+                    print(f"缓存加载失败: {e}")
+                    self.embedding_cache = {}
+
+            print("✓ 语义模型加载成功")
+
+        except Exception as e:
+            print(f"警告: 语义模型加载失败: {e}")
+            print("将使用基础匹配算法")
+            self.use_semantic_search = False
+            self.semantic_model = None
+
+    def _get_cache_file(self) -> Path:
+        """获取缓存文件路径"""
+        cache_dir = Path(os.path.dirname(__file__)) / '.cache'
+        cache_dir.mkdir(exist_ok=True)
+        return cache_dir / f'embeddings_{self.model_name.replace("-", "_")}.pkl'
+
+    def _save_cache(self):
+        """保存向量缓存"""
+        try:
+            cache_file = self._get_cache_file()
+            with open(cache_file, 'wb') as f:
+                pickle.dump(self.embedding_cache, f)
+        except Exception as e:
+            print(f"缓存保存失败: {e}")
+
+    def _get_text_hash(self, text: str) -> str:
+        """获取文本的哈希值"""
+        return hashlib.md5(text.encode('utf-8')).hexdigest()
+
+    def _get_embedding(self, text: str) -> Optional[Any]:
+        """
+        获取文本的语义向量（带缓存）
+
+        Args:
+            text: 输入文本
+
+        Returns:
+            语义向量（numpy array）
+        """
+        if not self.use_semantic_search or not self.semantic_model:
+            return None
+
+        # 检查缓存
+        text_hash = self._get_text_hash(text)
+        if text_hash in self.embedding_cache:
+            return self.embedding_cache[text_hash]
+
+        # 计算新的向量
+        try:
+            embedding = self.semantic_model.encode(text, convert_to_numpy=True)
+            self.embedding_cache[text_hash] = embedding
+
+            # 每100次计算保存一次缓存
+            if len(self.embedding_cache) % 100 == 0:
+                self._save_cache()
+
+            return embedding
+        except Exception as e:
+            print(f"计算语义向量失败: {e}")
+            return None
+
+    def _calculate_cosine_similarity(self, vec1: Any, vec2: Any) -> float:
+        """
+        计算两个向量的余弦相似度
+
+        Args:
+            vec1, vec2: 语义向量
+
+        Returns:
+            相似度分数 (0-1)
+        """
+        try:
+            import numpy as np
+            # 确保是numpy数组
+            if not isinstance(vec1, np.ndarray):
+                vec1 = np.array(vec1)
+            if not isinstance(vec2, np.ndarray):
+                vec2 = np.array(vec2)
+
+            # 计算余弦相似度
+            dot_product = np.dot(vec1, vec2)
+            norm1 = np.linalg.norm(vec1)
+            norm2 = np.linalg.norm(vec2)
+
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+
+            similarity = dot_product / (norm1 * norm2)
+            # 归一化到 [0, 1]
+            return max(0.0, min(1.0, (similarity + 1) / 2))
+        except Exception as e:
+            print(f"计算余弦相似度失败: {e}")
+            return 0.0
 
     def check_database_exists(self) -> None:
         """检查数据库文件是否存在"""
@@ -488,29 +626,339 @@ class WordLookup:
         text = text.lower()
         return re.findall(r'\b\w+\b', text)
 
-    def calculate_similarity(self, context: str, entry: WordEntry) -> float:
-        """计算语境与条目的相似度"""
-        context_tokens = set(self.tokenize(context))
+    def _extract_keywords(self, text: str, top_n: int = 10) -> List[str]:
+        """提取文本中的关键词（基于TF-IDF简化版）"""
+        tokens = self.tokenize(text)
+        if not tokens:
+            return []
 
-        # 使用中文释义和例句计算相似度
+        # 计算词频
+        token_freq = Counter(tokens)
+
+        # 过滤常见停用词
+        stopwords = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be',
+            'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+            'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this',
+            'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
+            '的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一',
+            '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有',
+            '看', '好', '自己', '这'
+        }
+
+        # 移除停用词
+        filtered_tokens = [(token, freq) for token, freq in token_freq.items()
+                          if token not in stopwords and len(token) > 1]
+
+        # 按频率排序，返回前top_n个
+        filtered_tokens.sort(key=lambda x: x[1], reverse=True)
+        return [token for token, _ in filtered_tokens[:top_n]]
+
+    def _calculate_tfidf_similarity(self, context: str, entry: WordEntry) -> float:
+        """计算TF-IDF加权相似度"""
+        context_keywords = self._extract_keywords(context)
         definition_text = ' '.join(entry.chinese_definitions) + ' ' + ' '.join(entry.examples)
-        definition_tokens = set(self.tokenize(definition_text))
+        definition_keywords = self._extract_keywords(definition_text)
 
-        if not context_tokens or not definition_tokens:
+        if not context_keywords or not definition_keywords:
             return 0.0
 
-        intersection = context_tokens & definition_tokens
-        union = context_tokens | definition_tokens
+        # 计算关键词重叠度（带权重）
+        context_set = set(context_keywords)
+        definition_set = set(definition_keywords)
+
+        intersection = context_set & definition_set
+        if not intersection:
+            return 0.0
+
+        # 计算加权分数（位置越靠前权重越高）
+        score = 0.0
+        for i, word in enumerate(context_keywords):
+            if word in definition_set:
+                # 权重：context中越靠前的词权重越高
+                weight = 1.0 / (i + 1)
+                score += weight
+
+        # 归一化
+        max_score = sum(1.0 / (i + 1) for i in range(len(context_keywords)))
+        return score / max_score if max_score > 0 else 0.0
+
+    def _calculate_example_similarity(self, context: str, entry: WordEntry) -> float:
+        """计算例句与语境的相似度"""
+        if not entry.examples:
+            return 0.0
+
+        context_tokens = set(self.tokenize(context))
+        if not context_tokens:
+            return 0.0
+
+        best_score = 0.0
+        for example in entry.examples:
+            example_tokens = set(self.tokenize(example))
+            if not example_tokens:
+                continue
+
+            # Jaccard相似度
+            intersection = context_tokens & example_tokens
+            union = context_tokens | example_tokens
+            score = len(intersection) / len(union) if union else 0.0
+            best_score = max(best_score, score)
+
+        return best_score
+
+    def _calculate_ngram_similarity(self, text1: str, text2: str, n: int = 2) -> float:
+        """计算n-gram相似度"""
+        tokens1 = self.tokenize(text1)
+        tokens2 = self.tokenize(text2)
+
+        if len(tokens1) < n or len(tokens2) < n:
+            return 0.0
+
+        # 生成n-gram
+        ngrams1 = set(' '.join(tokens1[i:i+n]) for i in range(len(tokens1) - n + 1))
+        ngrams2 = set(' '.join(tokens2[i:i+n]) for i in range(len(tokens2) - n + 1))
+
+        if not ngrams1 or not ngrams2:
+            return 0.0
+
+        intersection = ngrams1 & ngrams2
+        union = ngrams1 | ngrams2
 
         return len(intersection) / len(union) if union else 0.0
 
-    def find_best_match(self, entries: List[WordEntry], context: str) -> Optional[WordEntry]:
-        """根据语境找到最佳匹配的条目"""
-        if not entries:
-            return None
+    def _calculate_semantic_similarity(self, context: str, entry: WordEntry) -> float:
+        """
+        计算语义相似度（使用预训练模型）
 
+        Args:
+            context: 语境文本
+            entry: 单词条目
+
+        Returns:
+            语义相似度分数 (0.0 - 1.0)
+        """
+        if not self.use_semantic_search or not self.semantic_model:
+            return 0.0
+
+        try:
+            # 优先使用英文释义（因为模型是英文训练的）
+            # 如果有英文释义，使用英文释义
+            # 如果没有，使用例句（也是英文）
+            # 最后才使用中文释义
+            definition_parts = []
+
+            # 1. 添加英文释义（最重要）
+            if entry.definitions:
+                definition_parts.extend(entry.definitions[:3])  # 最多取前3个
+
+            # 2. 添加例句（英文，有助于理解语境）
+            if entry.examples:
+                definition_parts.extend(entry.examples[:2])  # 最多取前2个例句
+
+            # 3. 如果没有英文内容，使用中文释义
+            if not definition_parts and entry.chinese_definitions:
+                definition_parts.extend(entry.chinese_definitions[:3])
+
+            if not definition_parts:
+                return 0.0
+
+            # 合并所有文本
+            definition_text = ' '.join(definition_parts)
+
+            # 获取语义向量
+            context_embedding = self._get_embedding(context)
+            definition_embedding = self._get_embedding(definition_text)
+
+            if context_embedding is None or definition_embedding is None:
+                return 0.0
+
+            # 计算余弦相似度
+            similarity = self._calculate_cosine_similarity(context_embedding, definition_embedding)
+            return similarity
+
+        except Exception as e:
+            print(f"计算语义相似度失败: {e}")
+            return 0.0
+
+    def _rank_definitions_by_context(
+        self,
+        context: str,
+        definitions: List[str],
+        examples: List[str],
+        english_definitions: List[str]
+    ) -> List[str]:
+        """
+        根据语境对释义进行排序
+
+        Args:
+            context: 语境文本
+            definitions: 释义列表（通常是中文）
+            examples: 例句列表（英文）
+            english_definitions: 英文释义列表
+
+        Returns:
+            排序后的释义列表
+        """
+        if not context or not definitions:
+            return definitions
+
+        # 预计算语境的语义向量
+        context_embedding = None
+        if self.use_semantic_search and self.semantic_model:
+            context_embedding = self._get_embedding(context)
+
+        # 预计算例句相似度（所有释义共享）
+        example_score = 0.0
+        if examples:
+            context_tokens = set(self.tokenize(context))
+            for example in examples:
+                example_tokens = set(self.tokenize(example))
+                if example_tokens:
+                    intersection = context_tokens & example_tokens
+                    union = context_tokens | example_tokens
+                    if union:
+                        example_score = max(example_score, len(intersection) / len(union))
+
+        # 语境关键词（用于中文释义匹配）
+        context_tokens = set(self.tokenize(context))
+
+        # 为每个释义计算匹配分数
+        scored_definitions = []
+
+        for i, definition in enumerate(definitions):
+            score = 0.0
+
+            # 1. 使用英文释义计算语义相似度（权重40%）
+            if context_embedding is not None and english_definitions and i < len(english_definitions):
+                eng_def = english_definitions[i]
+                def_embedding = self._get_embedding(eng_def)
+                if def_embedding is not None:
+                    semantic_score = self._calculate_cosine_similarity(context_embedding, def_embedding)
+                    score += semantic_score * 0.4
+
+            # 2. 使用例句相似度（权重30%）
+            score += example_score * 0.3
+
+            # 3. 中文释义词汇重叠（权重30%）
+            def_tokens = set(self.tokenize(definition))
+            if context_tokens and def_tokens:
+                intersection = context_tokens & def_tokens
+                union = context_tokens | def_tokens
+                if union:
+                    jaccard = len(intersection) / len(union)
+                    score += jaccard * 0.3
+
+            scored_definitions.append((score, definition))
+
+        # 按分数降序排序
+        scored_definitions.sort(key=lambda x: x[0], reverse=True)
+
+        # 返回排序后的释义列表
+        return [defn for _, defn in scored_definitions]
+
+    def calculate_similarity(self, context: str, entry: WordEntry,
+                            use_semantic: bool = True,
+                            use_tfidf: bool = True,
+                            use_examples: bool = True,
+                            use_ngram: bool = True) -> float:
+        """
+        计算语境与条目的综合相似度
+
+        Args:
+            context: 语境文本
+            entry: 单词条目
+            use_semantic: 是否使用语义模型（智能匹配）
+            use_tfidf: 是否使用TF-IDF加权
+            use_examples: 是否考虑例句相似度
+            use_ngram: 是否使用n-gram匹配
+
+        Returns:
+            综合相似度分数 (0.0 - 1.0)
+        """
+        if not context:
+            return 0.0
+
+        scores = []
+
+        # 1. 语义相似度（如果可用且启用）
+        # 降低权重，让其他方法也能发挥作用
+        if use_semantic and self.use_semantic_search:
+            semantic_score = self._calculate_semantic_similarity(context, entry)
+            if semantic_score > 0:
+                scores.append(('semantic', semantic_score, 0.35))  # 从60%降到35%
+
+        # 2. 例句相似度（非常重要，因为例句是英文）
+        # 大幅提高权重，因为英文例句与英文语境匹配更准确
+        if use_examples and entry.examples:
+            example_score = self._calculate_example_similarity(context, entry)
+            example_weight = 0.30 if self.use_semantic_search else 0.20
+            scores.append(('example', example_score, example_weight))
+
+        # 3. TF-IDF加权相似度
+        if use_tfidf:
+            tfidf_score = self._calculate_tfidf_similarity(context, entry)
+            tfidf_weight = 0.15 if self.use_semantic_search else 0.40
+            scores.append(('tfidf', tfidf_score, tfidf_weight))
+
+        # 4. 基础Jaccard相似度（中文释义）
+        context_tokens = set(self.tokenize(context))
+        definition_text = ' '.join(entry.chinese_definitions)
+        definition_tokens = set(self.tokenize(definition_text))
+
+        if context_tokens and definition_tokens:
+            intersection = context_tokens & definition_tokens
+            union = context_tokens | definition_tokens
+            jaccard_score = len(intersection) / len(union) if union else 0.0
+            jaccard_weight = 0.15 if self.use_semantic_search else 0.30
+            scores.append(('jaccard', jaccard_score, jaccard_weight))
+
+        # 5. N-gram相似度
+        if use_ngram:
+            ngram_score = self._calculate_ngram_similarity(
+                context,
+                ' '.join(entry.definitions) if entry.definitions else ' '.join(entry.chinese_definitions)
+            )
+            ngram_weight = 0.05 if self.use_semantic_search else 0.10
+            scores.append(('ngram', ngram_score, ngram_weight))
+
+        # 加权求和
+        if not scores:
+            return 0.0
+
+        total_score = sum(score * weight for _, score, weight in scores)
+        total_weight = sum(weight for _, _, weight in scores)
+
+        return total_score / total_weight if total_weight > 0 else 0.0
+
+    def find_best_match(self, entries: List[WordEntry], context: str,
+                       return_scores: bool = False) -> Optional[WordEntry] | Tuple[Optional[WordEntry], List[Tuple[float, WordEntry]]]:
+        """
+        根据语境找到最佳匹配的条目
+
+        Args:
+            entries: 单词条目列表
+            context: 语境描述
+            return_scores: 是否返回所有条目的分数
+
+        Returns:
+            如果return_scores=False: 返回最佳匹配的条目
+            如果return_scores=True: 返回(最佳条目, 所有条目分数列表)
+        """
+        if not entries:
+            return None if not return_scores else (None, [])
+
+        # 如果没有语境或只有一个条目，返回第一个有释义的条目
         if not context or len(entries) == 1:
-            return entries[0]
+            # 找到第一个有释义的条目
+            for entry in entries:
+                if (entry.chinese_definitions and len(entry.chinese_definitions) > 0) or \
+                   (entry.definitions and len(entry.definitions) > 0):
+                    return entry if not return_scores else (entry, [(1.0, entry)])
+
+            # 如果所有条目都是空的，返回第一个
+            result = entries[0]
+            return result if not return_scores else (result, [(1.0, entries[0])])
 
         # 计算每个条目的相似度分数
         scored_entries = [
@@ -518,9 +966,11 @@ class WordLookup:
             for entry in entries
         ]
 
-        # 按相似度排序，返回最高分
+        # 按相似度排序
         scored_entries.sort(key=lambda x: x[0], reverse=True)
-        return scored_entries[0][1]
+
+        best_entry = scored_entries[0][1]
+        return best_entry if not return_scores else (best_entry, scored_entries)
 
     def _resolve_word_form(self, word: str) -> Tuple[str, Optional[str]]:
         """
@@ -593,37 +1043,93 @@ class WordLookup:
         # 根据语境选择最佳条目
         best_entry = self.find_best_match(entries, context)
 
-        # 获取基本形式的条目（用于音标等）
+        # 获取基本形式的条目（用于音标和释义等）
         base_entry = None
         if base_form and base_form != lookup_word:
+            # 关键修复：使用 base_form 重新查询数据库获取完整内容
             base_entries = self.get_word_entries(base_form)
             if base_entries:
-                base_entry = base_entries[0]
+                base_entry = self.find_best_match(base_entries, "")  # 找第一个有释义的条目
+
+        # 检查 best_entry 是否为空条目（没有释义和例句）
+        best_entry_is_empty = (
+            not best_entry.chinese_definitions and
+            not best_entry.definitions and
+            not best_entry.examples
+        )
+
+        # 如果 best_entry 是空的，使用 base_entry
+        if best_entry_is_empty and base_entry:
+            best_entry = base_entry
 
         # 获取音标
         phonetics = self._get_phonetics(best_entry, base_entry)
 
         # 优先使用中文释义，如果没有则使用英文释义
-        definitions = best_entry.chinese_definitions if best_entry.chinese_definitions else best_entry.definitions
+        # 如果best_entry没有释义或释义为空，使用base_entry的释义
+        all_definitions = best_entry.chinese_definitions if best_entry.chinese_definitions else best_entry.definitions
+
+        # 检查释义是否为空（空列表也算空）
+        if not all_definitions or len(all_definitions) == 0:
+            if base_entry:
+                all_definitions = base_entry.chinese_definitions if base_entry.chinese_definitions else base_entry.definitions
+
+        # 如果还是为空，使用空列表
+        if not all_definitions:
+            all_definitions = []
+
+        # 如果提供了语境且释义超过1个，对释义进行排序
+        if context and len(all_definitions) > 1:
+            # 确定用于排序的英文释义和例句
+            sort_definitions = best_entry.definitions if best_entry.definitions else []
+            sort_examples = best_entry.examples if best_entry.examples else []
+
+            # 如果best_entry没有英文释义和例句，使用base_entry的
+            if (not sort_definitions or len(sort_definitions) == 0) and base_entry:
+                sort_definitions = base_entry.definitions if base_entry.definitions else []
+            if (not sort_examples or len(sort_examples) == 0) and base_entry:
+                sort_examples = base_entry.examples if base_entry.examples else []
+
+            all_definitions = self._rank_definitions_by_context(
+                context,
+                all_definitions,
+                sort_examples,
+                sort_definitions
+            )
 
         # 构建结果
+        # 如果best_entry没有例句，使用base_entry的例句
+        examples = best_entry.examples
+        if (not examples or len(examples) == 0) and base_entry:
+            examples = base_entry.examples
+
         result = LookupResult(
             success=True,
             word=lookup_word,
             phonetic=self._format_phonetic(phonetics),
-            definitions=definitions,
+            definitions=all_definitions,
             base_form=base_form or lookup_word,
             pos=best_entry.pos,
-            examples=best_entry.examples
+            examples=examples if examples else []
         )
 
         return result
 
-    def get_all_definitions(self, word: str) -> LookupResult:
-        """获取单词的所有释义"""
+    def get_all_definitions(self, word: str, context: str = "") -> LookupResult:
+        """
+        获取单词的所有释义，并根据语境计算匹配分数
+
+        Args:
+            word: 要查询的单词
+            context: 语境描述（可选）
+
+        Returns:
+            LookupResult: 包含所有释义及其匹配分数
+        """
         self.check_database_exists()
 
         word = word.strip()
+        context = context.strip()
 
         # 解析单词形式
         lookup_word, base_form = self._resolve_word_form(word)
@@ -638,16 +1144,23 @@ class WordLookup:
         # 获取所有条目
         entries = self.get_word_entries(lookup_word)
 
+        # 如果提供了语境，计算每个条目的匹配分数
+        if context:
+            _, scored_entries = self.find_best_match(entries, context, return_scores=True)
+        else:
+            scored_entries = [(0.0, entry) for entry in entries]
+
         # 转换为字典格式
         all_entries = []
-        for entry in entries:
+        for score, entry in scored_entries:
             all_entries.append({
                 'headword': entry.headword,
                 'phonetics': entry.phonetics,
                 'definitions': entry.definitions,
                 'chinese_definitions': entry.chinese_definitions,
                 'examples': entry.examples,
-                'pos': entry.pos
+                'pos': entry.pos,
+                'match_score': round(score, 3) if context else None
             })
 
         result = LookupResult(
@@ -662,32 +1175,63 @@ class WordLookup:
 
 def main():
     """命令行交互界面"""
-    print("=" * 60)
-    print("单词查询系统 - 基于语境的释义匹配")
-    print("=" * 60)
-    print()
+    print("=" * 70)
+    print("单词查询系统 - AI智能语义匹配")
+    print("=" * 70)
+
+    # 显示系统状态
+    print("\n系统状态:")
+    if SENTENCE_TRANSFORMER_AVAILABLE:
+        print("✓ AI语义模型: 已启用 (使用sentence-transformers)")
+        print("  - 模型: all-MiniLM-L6-v2 (轻量级，速度快)")
+        print("  - 首次使用将自动下载模型 (~200MB)")
+    else:
+        print("○ AI语义模型: 未启用")
+        print("  安装方法: pip install sentence-transformers torch")
+        print("  当前使用: 传统词法匹配算法 (Jaccard/TF-IDF)")
+
+    print("\n功能特性:")
+    if SENTENCE_TRANSFORMER_AVAILABLE:
+        print("• 深度语义理解 - 真正理解语境含义，而非简单词汇匹配")
+        print("• 多级智能匹配 - 语义相似度(60%) + 词法分析(40%)")
+    print("• 自动消歧 - 根据语境自动选择最合适的释义")
+    print("• 匹配分数可视化 - 显示每个释义的匹配程度")
 
     try:
-        lookup = WordLookup()
+        lookup = WordLookup(use_semantic_search=True)
+
+        # 显示使用的模式
+        if lookup.use_semantic_search:
+            print("\n✓ 当前模式: AI语义理解模式")
+        else:
+            print("\n✓ 当前模式: 传统词法匹配模式")
+
     except FileNotFoundError as e:
-        print(f"错误: {e}")
+        print(f"\n错误: {e}")
         return
+    except Exception as e:
+        print(f"\n初始化失败: {e}")
+        print("如果模型下载失败，将自动降级到传统匹配算法")
+        lookup = WordLookup(use_semantic_search=False)
 
     while True:
-        print("\n请选择操作:")
-        print("1. 查询单词（输入语境）")
-        print("2. 查看单词所有释义")
-        print("3. 退出")
+        print("\n" + "=" * 70)
+        print("请选择操作:")
+        print("1. 智能查询单词（AI自动匹配最佳释义）")
+        print("2. 查看所有释义及匹配分数（需要提供语境）")
+        print("3. 查看所有释义（不提供语境）")
+        print("4. 切换匹配模式（语义/词法）")
+        print("5. 退出")
 
-        choice = input("\n请输入选项 (1/2/3): ").strip()
+        choice = input("\n请输入选项 (1-5): ").strip()
 
         if choice == '1':
-            word = input("请输入英文单词: ").strip()
-            context = input("请输入语境描述: ").strip()
+            word = input("\n请输入英文单词: ").strip()
+            context = input("请输入语境或句子（可选，直接回车跳过）: ").strip()
 
             result = lookup.lookup(word, context)
 
-            print("\n" + "-" * 60)
+            print("\n" + "=" * 70)
             if result.success:
                 print(f"单词: {result.word}")
                 if result.base_form and result.base_form != result.word:
@@ -695,6 +1239,12 @@ def main():
                 if result.pos:
                     print(f"词性: {result.pos}")
                 print(f"音标: {result.phonetic}")
+
+                if context:
+                    print(f"\n提供的语境: {context}")
+                    mode = "AI语义理解" if lookup.use_semantic_search else "词法匹配"
+                    print(f"✓ 使用{mode}模式自动匹配最合适的释义")
+
                 print(f"\n中文释义:")
                 for i, definition in enumerate(result.definitions, 1):
                     print(f"  {i}. {definition}")
@@ -704,14 +1254,62 @@ def main():
                         print(f"  {i}. {example}")
             else:
                 print(f"错误: {result.message}")
-            print("-" * 60)
+            print("=" * 70)
 
         elif choice == '2':
-            word = input("请输入英文单词: ").strip()
+            word = input("\n请输入英文单词: ").strip()
+            context = input("请输入语境或句子: ").strip()
+
+            if not context:
+                print("错误: 选项2需要提供语境")
+                continue
+
+            result = lookup.get_all_definitions(word, context)
+
+            print("\n" + "=" * 70)
+            if result.success:
+                print(f"单词: {result.word}")
+                if result.base_form and result.base_form != result.word:
+                    print(f"原形: {result.base_form}")
+                print(f"\n提供的语境: {context}")
+                mode = "AI语义理解" if lookup.use_semantic_search else "词法匹配"
+                print(f"匹配模式: {mode}")
+                print(f"\n共有 {len(result.all_entries)} 个条目（按匹配度排序）:\n")
+
+                for i, entry in enumerate(result.all_entries, 1):
+                    match_score = entry.get('match_score', 0)
+                    # 添加视觉指示器
+                    if i == 1:
+                        indicator = "★"  # 最佳匹配
+                    elif match_score > 0.5:
+                        indicator = "●"  # 高匹配度
+                    elif match_score > 0.2:
+                        indicator = "○"  # 中等匹配度
+                    else:
+                        indicator = "○"  # 低匹配度
+
+                    print(f"{indicator} 条目 {i} [匹配分数: {match_score:.3f}]")
+                    if entry.get('pos'):
+                        print(f"   词性: {entry['pos']}")
+                    print(f"   音标: {', '.join(entry['phonetics']) if entry['phonetics'] else 'N/A'}")
+                    print(f"   中文释义:")
+                    for j, definition in enumerate(entry['chinese_definitions'] if entry['chinese_definitions'] else entry['definitions'], 1):
+                        print(f"     {j}. {definition}")
+                    if entry['examples']:
+                        print(f"   例句:")
+                        for j, example in enumerate(entry['examples'][:2], 1):
+                            print(f"     {j}. {example}")
+                    print()
+            else:
+                print(f"错误: {result.message}")
+            print("=" * 70)
+
+        elif choice == '3':
+            word = input("\n请输入英文单词: ").strip()
 
             result = lookup.get_all_definitions(word)
 
-            print("\n" + "-" * 60)
+            print("\n" + "=" * 70)
             if result.success:
                 print(f"单词: {result.word}")
                 if result.base_form and result.base_form != result.word:
@@ -733,10 +1331,21 @@ def main():
                     print()
             else:
                 print(f"错误: {result.message}")
-            print("-" * 60)
+            print("=" * 70)
 
-        elif choice == '3':
-            print("再见!")
+        elif choice == '4':
+            # 切换模式
+            if not SENTENCE_TRANSFORMER_AVAILABLE:
+                print("\n⚠ 无法切换：sentence-transformers未安装")
+                print("  安装命令: pip install sentence-transformers torch")
+                continue
+
+            lookup.use_semantic_search = not lookup.use_semantic_search
+            mode = "AI语义理解模式" if lookup.use_semantic_search else "传统词法匹配模式"
+            print(f"\n✓ 已切换到: {mode}")
+
+        elif choice == '5':
+            print("\n感谢使用！再见!")
             break
 
 

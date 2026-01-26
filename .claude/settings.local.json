@@ -4,7 +4,9 @@
       "Skill(glm-plan-usage:usage-query-skill)",
       "Skill(glm-plan-usage:usage-query-skill:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(python:*)",
+      "Bash(ls:*)"
     ]
   }
 }
