@@ -4,8 +4,6 @@ import re
 from html.parser import HTMLParser
 from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass, field
-from ai_service import ai_service
-from config import config
 
 try:
     from nltk.stem import WordNetLemmatizer
@@ -553,14 +551,13 @@ class WordLookup:
             return "N/A"
         return ', '.join(phonetics[:max_count])
 
-    def lookup(self, word: str, context: str = "", use_ai: bool = True) -> LookupResult:
+    def lookup(self, word: str, context: str = "") -> LookupResult:
         """
         查询单词
 
         Args:
             word: 要查询的单词
-            context: 语境描述
-            use_ai: 是否使用AI判断词形
+            context: 语境描述（可选）
 
         Returns:
             LookupResult: 查询结果
@@ -583,15 +580,6 @@ class WordLookup:
                 word=word,
                 message=f'数据库中未找到单词 "{word}"'
             )
-
-        # AI判断词形（可选）
-        if use_ai and config.get_api_key():
-            try:
-                ai_result = ai_service.judge_word_form(lookup_word, context)
-                if ai_result and ai_result.get('recommended_form'):
-                    lookup_word = ai_result['recommended_form']
-            except Exception as e:
-                print(f"AI判断失败，继续使用默认逻辑: {e}")
 
         # 获取所有条目
         entries = self.get_word_entries(lookup_word)
