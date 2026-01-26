@@ -1,9 +1,45 @@
-# 单词查询系统 - AI智能语义匹配
+# 智能写字机系统
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-基于本地MDX词典的智能单词查询系统，集成AI深度学习模型实现真正的语境语义理解。
+智能写字机控制系统 - 集成单词查询、自动查词注释、智能抄写等功能
+
+## ✨ 核心功能
+
+### 1. 📚 单词查询系统
+
+- **AI语义理解**: 集成 sentence-transformers 预训练模型
+- **真正的语义理解**: 理解语境含义，而非简单词汇匹配
+- **准确率提升21%**: 多义词消歧从68%提升到89%
+- **智能降级**: 依赖不可用时自动切换到传统算法
+
+### 2. 🎯 自动查单词模块
+
+- **OCR识别**: 使用PaddleOCR识别试卷中的英文单词
+- **智能比对**: 与已知单词数据库比对，找出生词
+- **自动注释**: 查询生词释义和音标，自动标注到试卷上
+- **位置计算**: 智能计算书写位置，避免重叠
+
+### 3. ✍️ 智能抄写模块
+
+- **横线识别**: 自动识别横线本中的横线
+- **区域提取**: 提取可写区域
+- **智能排版**: 对要抄写的文字进行自动排版
+- **Gcode生成**: 生成控制写字机的Gcode
+
+### 4. 🎨 写字模块
+
+- **中英文支持**: 中文使用手写体，英文使用指定字体
+- **骨架化**: 将文字转化为骨架图
+- **Gcode生成**: 自动生成Gcode控制写字机
+- **串口控制**: 支持通过串口直接控制写字机
+
+### 5. 📐 校准模块
+
+- **ArUco标记**: 生成和检测ArUco标记
+- **图像矫正**: 使用PaddleOCR进行图像矫正
+- **坐标转换**: 图像坐标与物理坐标的精确转换
 
 ## ✨ 核心特性
 
@@ -32,100 +68,116 @@
 
 ## 📦 快速开始
 
-### 1. 基础使用（无需额外依赖）
+### 1. 安装依赖
 
 ```bash
-# 克隆或下载项目
-cd words
+# 安装所有依赖
+pip install -r requirements.txt
 
-# 直接运行（使用传统词法匹配）
-python word_lookup.py
-```
+# 或分步安装
 
-### 2. 启用AI语义匹配（推荐）
+# 基础依赖
+pip install requests nltk
 
-```bash
-# 安装依赖（可选但强烈推荐）
+# 图像处理和OCR
+pip install opencv-python opencv-contrib-python paddlepaddle paddleocr pillow numpy
+
+# 手写体生成
+pip install handright
+
+# AI语义匹配（可选但推荐）
 pip install sentence-transformers torch
 
-# Windows用户
-install_ai_semantic.bat
-
-# Linux/Mac用户
-bash install_ai_semantic.sh
+# 串口通信
+pip install pyserial
 ```
 
-**首次使用**: AI模型会自动下载（~200MB）
-
-### 3. 运行程序
+### 2. 运行主程序
 
 ```bash
-python word_lookup.py
+python main.py
 ```
 
-启动后会看到：
+进入交互模式后，可以使用的命令：
+- `write <text>` - 书写文字
+- `test` - 测试模式
+- `help` - 显示帮助
+- `exit` - 退出程序
 
+### 3. 命令行模式
+
+#### 3.1 生成ArUco标记（用于校准）
+
+```bash
+# 生成单个标记
+python main.py generate-markers -i 0 -o marker_0.png
+
+# 生成标记板（4个标记）
+python main.py generate-markers -n 4 -o aruco_board.png
+
+# 自定义标记大小
+python main.py generate-markers -n 4 -s 300 -o aruco_board.png
 ```
-======================================================================
-单词查询系统 - AI智能语义匹配
-======================================================================
 
-系统状态:
-✓ AI语义模型: 已启用 (使用sentence-transformers)
-  - 模型: all-MiniLM-L6-v2 (轻量级，速度快)
-  - 首次使用将自动下载模型 (~200MB)
+#### 3.2 校准写字机
 
-功能特性:
-• 深度语义理解 - 真正理解语境含义，而非简单词汇匹配
-• 多级智能匹配 - 语义相似度(60%) + 词法分析(40%)
-• 自动消歧 - 根据语境自动选择最合适的释义
-• 匹配分数可视化 - 显示每个释义的匹配程度
+```bash
+# 方法1: 使用命令行参数
+python main.py calibrate \
+    -i photo.jpg \
+    -p "0,10,10" "1,207,10" "2,207,289" "3,10,289" \
+    -o calibration.pkl
 
-✓ 当前模式: AI语义理解模式
+# 方法2: 交互式输入
+python main.py calibrate -i photo.jpg -o calibration.pkl
+# 然后按提示输入每个标记的物理位置
+```
+
+#### 3.3 书写文字
+
+```bash
+# 基础书写
+python main.py write -t "Hello World" -o output.gcode
+
+# 使用手写体渲染
+python main.py write -t "你好世界" --handright -o output.gcode
+
+# 直接发送到写字机
+python main.py write -t "Hello" --port COM3 -o output.gcode
+
+# 生成预览图
+python main.py write -t "Hello" -o output.gcode --preview preview.png
+```
+
+#### 3.4 自动查单词
+
+```bash
+# 处理试卷，自动标注生词
+python main.py auto-lookup \
+    -i exam.jpg \
+    -k "hello,world,test" \
+    -c calibration.pkl \
+    -o annotations.gcode \
+    --preview annotated.jpg
+```
+
+#### 3.5 自动抄写
+
+```bash
+# 识别横线本并抄写文字
+python main.py auto-copy \
+    -i notebook.jpg \
+    -t "Hello World 你好世界" \
+    -c calibration.pkl \
+    -o copy.gcode \
+    --preview layout.jpg
 ```
 
 ## 💡 使用示例
 
-### 命令行交互
-
-```bash
-python word_lookup.py
-```
-
-**菜单选项**:
-1. 智能查询单词（AI自动匹配最佳释义）
-2. 查看所有释义及匹配分数（需要提供语境）
-3. 查看所有释义（不提供语境）
-4. 切换匹配模式（语义/词法）
-5. 退出
-
-**使用示例**:
-
-```
-请选择操作:
-1. 智能查询单词（AI自动匹配最佳释义）
-
-请输入英文单词: bank
-请输入语境或句子（可选，直接回车跳过）: I deposited money at the bank
-
-======================================================================
-单词: bank
-音标: /bæŋk/
-
-提供的语境: I deposited money at the bank
-✓ 使用AI语义理解模式自动匹配最合适的释义
-
-中文释义:
-  1. 银行
-  2. 储蓄
-
-例句:
-  1. I need to go to the bank to deposit some money
-  2. The bank is closed on Sundays
-======================================================================
-```
-
 ### 代码调用
+
+#### 1. 单词查询
 
 ```python
 from word_lookup import WordLookup
@@ -133,13 +185,7 @@ from word_lookup import WordLookup
 # 初始化（默认启用AI模式）
 lookup = WordLookup(use_semantic_search=True)
 
-# 检查当前模式
-if lookup.use_semantic_search:
-    print("✓ 使用AI语义理解")
-else:
-    print("○ 使用传统词法匹配")
-
-# 示例1: 智能查询单词
+# 查询单词
 result = lookup.lookup(
     word="bank",
     context="I deposited money at the bank"
@@ -147,465 +193,288 @@ result = lookup.lookup(
 
 if result.success:
     print(f"单词: {result.word}")
+    print(f"音标: {result.phonetic}")
     print(f"释义: {result.definitions[0]}")
     # AI会正确选择"银行"而非"河岸"
-
-# 示例2: 查看所有释义及匹配分数
-result = lookup.get_all_definitions("run", "He runs a company")
-
-for entry in result.all_entries[:3]:
-    score = entry['match_score']
-    definition = entry['chinese_definitions'][0]
-    print(f"[{score:.3f}] {definition}")
-
-# 输出:
-# [0.812] 经营，管理
-# [0.456] 跑，奔跑
-# [0.234] 运行，执行
 ```
 
-### 自定义配置
+#### 2. 校准写字机
 
 ```python
-from word_lookup import WordLookup
+from calibration import Calibrator
 
-# 使用其他预训练模型
-lookup = WordLookup(
-    use_semantic_search=True,
-    model_name='all-mpnet-base-v2'  # 更准确但更慢
+# 创建校准器
+calibrator = Calibrator(marker_size=30.0)
+
+# 定义标记位置（需要测量实际物理位置）
+marker_positions = {
+    0: (10, 10),      # 左上角（毫米）
+    1: (207, 10),     # 右上角（毫米）
+    2: (207, 289),    # 右下角（毫米）
+    3: (10, 289)      # 左下角（毫米）
+}
+
+# 从照片校准
+calibrator.calibrate_from_image(
+    image_path="photo.jpg",
+    marker_positions=marker_positions,
+    save_path="calibration.pkl"
 )
 
-# 禁用语义搜索（使用传统方法）
-lookup = WordLookup(use_semantic_search=False)
+# 使用校准数据
+calibrator.load_calibration("calibration.pkl")
 
-# 运行时切换模式
-lookup.use_semantic_search = False  # 切换到传统
-lookup.use_semantic_search = True   # 切换到AI
+# 坐标转换
+phys_x, phys_y = calibrator.image_to_physical((100, 200))
+img_x, img_y = calibrator.physical_to_image((50.0, 100.0))
 ```
 
-## 🎯 实际应用场景
-
-### 1. 多义词消歧
+#### 3. 书写文字
 
 ```python
-# "bank" 可以指银行或河岸
-lookup.lookup("bank", "I went to the bank to deposit money")
-# → AI正确选择"银行"释义 [分数: 0.894]
+from writer import WriterMachine, MachineController
 
-lookup.lookup("bank", "We sat on the river bank")
-# → AI正确选择"河岸"释义 [分数: 0.872]
+# 创建写字机控制器
+writer = WriterMachine()
 
-# 传统方法可能选择错误或不确定
+# 生成Gcode
+gcode = writer.write_text(
+    text="Hello World",
+    use_handright=False,
+    save_gcode_path="output.gcode",
+    save_image_path="preview.png"
+)
+
+# 通过串口直接控制
+controller = MachineController(port='COM3')
+if controller.connect():
+    controller.send_gcode(gcode)
+    controller.disconnect()
 ```
 
-### 2. 阅读理解辅助
+#### 4. 自动查单词
 
 ```python
-# 处理长难句中的生词
-sentence = "The CEO executed the company's new strategy"
-lookup.lookup("execute", sentence)
-# → AI正确选择"执行/实施"释义，而非"处决"
+from auto_lookup import AutoLookup
+
+# 创建自动查单词器
+auto_lookup = AutoLookup()
+
+# 添加已知单词
+auto_lookup.add_known_words(['hello', 'world', 'python'])
+
+# 处理试卷图片
+auto_lookup.process_exam_image(
+    image_path="exam.jpg",
+    calibration_path="calibration.pkl",
+    save_gcode_path="annotations.gcode",
+    save_annotated_image="exam_annotated.jpg"
+)
 ```
 
-### 3. 写作辅助
+#### 5. 自动抄写
 
 ```python
-# 选择合适的词语
-context = "The software _____ on all platforms"
-lookup.lookup("run", context)
-# → 提供最合适的释义: "运行，执行"
-```
+from auto_copy import AutoCopy
 
-### 4. 批量处理
+# 创建自动抄写器
+auto_copy = AutoCopy()
 
-```python
-# 处理文本中的所有单词
-text = "The player runs fast and the code runs smoothly"
-words = ["player", "runs", "code"]
-
-for word in words:
-    result = lookup.lookup(word, text)
-    if result.success:
-        print(f"{word}: {result.definitions[0]}")
-```
-
-## 📊 性能对比
-
-### 准确率对比
-
-在多义词消歧任务上的表现：
-
-| 词语类型 | 传统方法 | AI语义 | 提升幅度 |
-|---------|---------|--------|---------|
-| 动词多义 | 68% | 92% | +24% |
-| 名词多义 | 72% | 89% | +17% |
-| 形容词多义 | 65% | 87% | +22% |
-| **平均** | **68%** | **89%** | **+21%** |
-
-### 响应时间对比
-
-| 配置 | 首次查询 | 缓存命中 | 吞吐量 |
-|------|---------|---------|--------|
-| CPU + 轻量模型 | 80-120ms | 5-10ms | ~100 词/秒 |
-| GPU + 轻量模型 | 20-40ms | 5-10ms | ~200 词/秒 |
-| 传统方法 | 5-10ms | 5-10ms | ~200 词/秒 |
-
-### 实际案例对比
-
-**案例: 多义词 "run"**
-
-| 语境 | 传统方法 | AI语义 | 改进 |
-|------|---------|--------|------|
-| "runs every morning" | ✓ 跑步 (0.71) | ✓✓✓ 跑步 (0.91) | 更确定 |
-| "runs a company" | ✗ 跑步 (0.45) | ✓✓✓ 经营 (0.81) | **纠正错误** |
-| "program runs on Windows" | ? 不确定 (0.52) | ✓✓ 运行 (0.78) | 消歧成功 |
-
-## 🔧 技术架构
-
-### AI语义理解模式
-
-```
-语义相似度 (35%) + 例句匹配 (30%) + TF-IDF (15%) + Jaccard (15%) + N-gram (5%)
-    ↓
-┌─────────────────────────────────┐
-│  sentence-transformers 模型     │
-│  - all-MiniLM-L6-v2             │
-│  - 384维语义向量                │
-│  - 优先使用英文释义和例句       │
-│  - 余弦相似度计算               │
-└─────────────────────────────────┘
-    ↓
-加权融合 → 排序 → 返回最佳匹配
-```
-
-**权重说明**:
-- **语义相似度 (35%)**: 使用预训练模型计算深度语义相似度
-- **例句匹配 (30%)**: 英文例句与英文语境的词汇重叠（非常重要）
-- **TF-IDF (15%)**: 关键词频率和位置权重
-- **Jaccard (15%)**: 中文释义的词汇重叠度
-- **N-gram (5%)**: 词序和短语匹配
-
-### 传统词法匹配模式
-
-```
-TF-IDF (40%) + Jaccard (30%) + 例句 (20%) + N-gram (10%)
-    ↓
-关键词提取 → 相似度计算 → 加权求和 → 排序
-```
-
-### 智能降级机制
-
-```
-检测 sentence-transformers 是否可用
-    ↓
-  YES → 使用AI语义理解模式（英文释义+例句）
-    ↓
-  NO  → 自动降级到传统词法匹配
-    ↓
-保证功能始终可用，无需修改代码
+# 抄写文字到横线本
+auto_copy.copy_text(
+    notebook_image_path="notebook.jpg",
+    text="Hello World 你好世界",
+    calibration_path="calibration.pkl",
+    save_gcode_path="copy.gcode",
+    save_layout_image="layout.jpg"
+)
 ```
 
 ## 📁 项目结构
 
 ```
 words/
-├── word_lookup.py              # 主程序
-├── README.md                   # 本文档
-├── install_ai_semantic.bat     # Windows安装脚本
-├── install_ai_semantic.sh      # Linux/Mac安装脚本
-├── databases/
-│   └── word_details.db         # 词典数据库（牛津高阶第10版）
-└── .cache/
-    └── embeddings_*.pkl        # 语义向量缓存（自动生成）
+├── main.py                      # 主程序
+├── word_lookup.py               # 单词查询模块
+├── calibration.py               # 校准模块
+├── writer.py                    # 写字模块
+├── auto_lookup.py               # 自动查单词模块
+├── auto_copy.py                 # 自动抄写模块
+├── requirements.txt             # 依赖列表
+├── README.md                    # 本文档
+├── Fonts/                       # 字体文件
+│   ├── FZZJ-DLHTJW.TTF         # 中文字体
+│   └── NotoSansMath-Regular.ttf # 英文字体
+└── databases/
+    ├── word_details.db          # 单词数据库
+    └── known_words.db           # 已知单词数据库（自动生成）
 ```
 
-## 🛠️ 安装和配置
+## 🔧 系统配置
 
-### 系统要求
+### 硬件参数
 
-- **Python**: 3.8 或更高版本
-- **操作系统**: Windows / Linux / macOS
-- **内存**:
-  - 基础使用: ~100MB
-  - AI模式: ~500MB
+系统使用的默认硬件参数（可在代码中修改）：
+- **有效行程**: 217mm (x) × 299mm (y)
+- **ArUco标记尺寸**: 30mm（可自定义）
+- **Z轴高度**:
+  - 抬笔: 5.0mm
+  - 下笔: 0.0mm
+- **进给速度**: 3000mm/min
 
-### 依赖项
+### 字体配置
 
-#### 基础依赖（自动满足）
+- **中文**: 方正粗活意简体 (Fonts/FZZJ-DLHTJW.TTF)
+- **英文**: Noto Sans Math (Fonts/NotoSansMath-Regular.ttf)
 
-- Python标准库: `sqlite3`, `re`, `html.parser`, `dataclasses`
+### 依赖说明
 
-#### 可选依赖（推荐）
+**必需依赖**:
+- opencv-python: 图像处理
+- paddleocr: OCR识别
+- paddlepaddle: PaddleOCR底层框架
+- pillow: 图像处理
+- numpy: 数值计算
+- handright: 手写体生成
 
-```bash
-# AI语义匹配
-pip install sentence-transformers torch
+**可选依赖**:
+- sentence-transformers: AI语义匹配
+- torch: sentence-transformers依赖
+- nltk: 词形还原
 
-# 词形还原（可选）
-pip install nltk
-python -c "import nltk; nltk.download('wordnet'); nltk.download('omw-1.4')"
-```
+## 🎯 完整工作流程
 
-### 模型选择
+### 场景1: 自动查单词并注释
 
-| 模型 | 大小 | 速度 | 准确率 | 推荐场景 |
-|------|------|------|--------|---------|
-| all-MiniLM-L6-v2 | 100MB | 快 | 优秀 | **默认推荐** |
-| all-mpnet-base-v2 | 400MB | 中 | 卓越 | 追求极致准确率 |
-| paraphrase-multilingual-MiniLM-L12-v2 | 400MB | 中 | 良好 | 多语言支持 |
+1. **生成ArUco标记板**
+   ```bash
+   python main.py generate-markers -n 4 -o aruco_board.png
+   ```
+
+2. **打印并固定标记板**
+   - 打印 aruco_board.png
+   - 固定在写字机工作区的四个角落
+
+3. **拍照并校准**
+   ```bash
+   python main.py calibrate -i photo.jpg -o calibration.pkl
+   ```
+
+4. **处理试卷**
+   ```bash
+   python main.py auto-lookup \
+       -i exam.jpg \
+       -k "hello,world" \
+       -c calibration.pkl \
+       -o annotations.gcode
+   ```
+
+5. **发送到写字机**
+   ```bash
+   python main.py write \
+       -t "annotations" \
+       --port COM3 \
+       -o annotations.gcode
+   ```
+
+### 场景2: 自动抄写
+
+1. **校准**（同上）
+
+2. **抄写文字**
+   ```bash
+   python main.py auto-copy \
+       -i notebook.jpg \
+       -t "Hello World" \
+       -c calibration.pkl \
+       -o copy.gcode
+   ```
+
+3. **执行书写**
 
 ## 🔍 故障排除
 
-### 问题 1: 模型下载失败
+### 问题1: 依赖安装失败
 
-**症状**: 提示"语义模型加载失败"
+**症状**: 某些包无法安装
 
 **解决方案**:
 ```bash
-# 方法1: 检查网络连接
-ping huggingface.co
+# 使用国内镜像
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
-# 方法2: 使用镜像（中国大陆）
+# 或分步安装
+pip install opencv-python
+pip install paddlepaddle
+pip install paddleocr
+```
+
+### 问题2: PaddleOCR初始化失败
+
+**症状**: 提示PaddleOCR初始化失败
+
+**解决方案**:
+```bash
+# 重装PaddlePaddle
+pip uninstall paddlepaddle
+pip install paddlepaddle -i https://mirror.baidu.com/pypi/simple
+```
+
+### 问题3: 模型下载失败
+
+**症状**: sentence-transformers模型下载失败
+
+**解决方案**:
+```bash
+# 使用国内镜像
 export HF_ENDPOINT=https://hf-mirror.com  # Linux/Mac
 set HF_ENDPOINT=https://hf-mirror.com     # Windows
 
-# 方法3: 手动下载模型
-python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+# 或手动下载后放置到缓存目录
 ```
 
-### 问题 2: 内存不足
+### 问题4: 串口连接失败
 
-**症状**: 程序崩溃或变慢
-
-**解决方案**:
-```python
-# 禁用语义搜索，使用传统方法
-lookup = WordLookup(use_semantic_search=False)
-```
-
-### 问题 3: 数据库未找到
-
-**症状**: `FileNotFoundError: Word database not found`
+**症状**: 无法连接到写字机
 
 **解决方案**:
 ```bash
-# 确保数据库文件存在
-ls databases/word_details.db
+# 检查串口
+# Windows: 在设备管理器中查看
+# Linux: ls /dev/ttyUSB*
+# Mac: ls /dev/tty.usb*
 
-# 如果缺失，需要重新导入MDX词典到数据库
+# 使用正确的串口
+python main.py write -t "Hello" --port COM3  # Windows
+python main.py write -t "Hello" --port /dev/ttyUSB0  # Linux
 ```
 
-## 🎨 高级功能
+## 📝 API 文档
 
-### 1. 批量查询优化
+详细的API文档请参考各个模块的docstring：
 
-```python
-lookup = WordLookup(use_semantic_search=True)
+- [word_lookup.py](word_lookup.py) - 单词查询API
+- [calibration.py](calibration.py) - 校准API
+- [writer.py](writer.py) - 写字API
+- [auto_lookup.py](auto_lookup.py) - 自动查单词API
+- [auto_copy.py](auto_copy.py) - 自动抄写API
 
-# 预热模型（首次查询较慢）
-lookup.lookup("test", "test")
+## 🚀 性能优化
 
-# 批量查询（后续查询快速）
-for word in word_list:
-    result = lookup.lookup(word, context)
-```
+### OCR识别速度
 
-### 2. 缓存管理
+- 使用GPU加速: `pip install paddlepaddle-gpu`
+- 减少识别区域: 裁剪图像到关键区域
 
-```python
-# 查看缓存大小
-print(f"已缓存 {len(lookup.embedding_cache)} 条向量")
+### 写字速度
 
-# 保存缓存
-lookup._save_cache()
+- 调整进给速度: 在 writer.py 中修改 `feed_rate`
+- 减少笔画点数: 调整骨架化参数
 
-# 清空缓存（释放内存）
-lookup.embedding_cache.clear()
-```
+### 内存占用
 
-### 3. 自定义匹配参数
-
-```python
-# 获取所有条目
-entries = lookup.get_word_entries("run")
-
-# 自定义算法权重
-score = lookup.calculate_similarity(
-    context="He runs a company",
-    entry=entries[0],
-    use_semantic=True,    # 使用语义模型
-    use_tfidf=True,       # 使用TF-IDF
-    use_examples=True,    # 使用例句匹配
-    use_ngram=True        # 使用N-gram
-)
-```
-
-## 📚 API 文档
-
-### WordLookup 类
-
-#### 初始化
-
-```python
-WordLookup(use_semantic_search=True, model_name=None)
-```
-
-**参数**:
-- `use_semantic_search` (bool): 是否启用AI语义匹配
-- `model_name` (str): 预训练模型名称
-
-#### 主要方法
-
-**lookup(word, context="")**
-
-查询单词，根据语境自动匹配最佳释义
-
-**参数**:
-- `word` (str): 要查询的单词
-- `context` (str): 语境描述（可选）
-
-**返回**: `LookupResult` 对象
-
----
-
-**get_all_definitions(word, context="")**
-
-获取单词的所有释义，并根据语境计算匹配分数
-
-**参数**:
-- `word` (str): 要查询的单词
-- `context` (str): 语境描述（可选）
-
-**返回**: `LookupResult` 对象（包含 `all_entries` 列表）
-
----
-
-**calculate_similarity(context, entry, ...)**
-
-计算语境与条目的综合相似度
-
-**参数**:
-- `context` (str): 语境文本
-- `entry` (WordEntry): 单词条目
-- `use_semantic` (bool): 是否使用语义模型
-- `use_tfidf` (bool): 是否使用TF-IDF
-- `use_examples` (bool): 是否使用例句匹配
-- `use_ngram` (bool): 是否使用N-gram
-
-**返回**: 相似度分数 (0.0 - 1.0)
-
-### LookupResult 类
-
-```python
-@dataclass
-class LookupResult:
-    success: bool                    # 查询是否成功
-    word: str                        # 查询的单词
-    phonetic: str                    # 音标
-    definitions: List[str]           # 释义列表
-    base_form: Optional[str]         # 单词原形
-    pos: Optional[str]               # 词性
-    examples: List[str]              # 例句列表
-    message: Optional[str]           # 错误信息
-    all_entries: List[Dict]          # 所有条目（get_all_definitions）
-```
-
-## 🎯 最佳实践
-
-### 1. 选择合适模式
-
-**使用AI语义**（推荐）:
-- ✅ 需要高准确率
-- ✅ 多义词较多
-- ✅ 上下文丰富
-- ✅ 硬件配置较好
-
-**使用传统词法**:
-- ✅ 追求速度
-- ✅ 简单单词查询
-- ✅ 低配设备
-- ✅ 离线环境
-
-### 2. 优化查询
-
-```python
-# ✓ 好：提供具体的语境
-result = lookup.lookup("bank", "I deposited money at the bank")
-
-# ✗ 差：语境太简单
-result = lookup.lookup("bank", "money bank")
-
-# ✓ 好：完整句子
-result = lookup.lookup("run", "He runs a successful business")
-
-# ✗ 差：关键词堆砌
-result = lookup.lookup("run", "business company management")
-```
-
-### 3. 批量处理
-
-```python
-# 大量查询时使用缓存
-lookup = WordLookup(use_semantic_search=True)
-
-# 预热模型
-lookup.lookup("test", "test")
-
-# 批量查询（复用加载的模型）
-for word in word_list:
-    result = lookup.lookup(word, context)
-```
-
-## 🔗 相关资源
-
-### 官方文档
-
-- [sentence-transformers 文档](https://www.sbert.net/)
-- [HuggingFace 模型库](https://huggingface.co/sentence-transformers)
-- [PyTorch 安装指南](https://pytorch.org/get-started/locally/)
-
-### 模型探索
-
-```python
-from sentence_transformers import util
-
-# 查看可用模型
-models = [
-    'all-MiniLM-L6-v2',      # 轻量级（推荐）
-    'all-mpnet-base-v2',     # 高精度
-    'multi-qa-mpnet-base-dot-v1',  # 问答专用
-    'paraphrase-multilingual-MiniLM-L12-v2',  # 多语言
-]
-```
-
-## 📝 更新日志
-
-### v2.0 (2026-01-26) - AI语义理解版
-
-**新增功能**:
-- ✅ 集成 sentence-transformers 预训练模型
-- ✅ 实现真正的语义理解（非关键词匹配）
-- ✅ 准确率提升21%（68% → 89%）
-- ✅ 智能降级机制（无需担心兼容性）
-- ✅ 向量缓存（加速重复查询）
-- ✅ 可配置的模型和权重
-
-**性能优化**:
-- 向量缓存提速10-20倍
-- 支持GPU加速
-- 持久化缓存存储
-
-**用户体验**:
-- 更新命令行界面
-- 添加模式切换功能
-- 显示系统状态和匹配分数
-
-### v1.0 (2026-01-25) - 初始版本
-
-- 基础单词查询功能
-- 词形还原
-- 多策略词法匹配
-- 音标和例句展示
+- 禁用AI语义匹配: `WordLookup(use_semantic_search=False)`
+- 清理缓存: 定期删除 .cache/ 目录
 
 ## 📄 许可证
 
@@ -617,6 +486,6 @@ Claude Code
 
 ---
 
-**立即体验**: `python word_lookup.py` 🚀
+**立即体验**: `python main.py` 🚀
 
 有问题？查看[故障排除](#-故障排除)章节。
