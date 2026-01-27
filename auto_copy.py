@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import re
 
 try:
+    import torch
     from paddleocr import PaddleOCR
     PADDLEOCR_AVAILABLE = True
 except ImportError:

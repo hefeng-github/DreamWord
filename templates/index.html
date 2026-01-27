@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能写字机控制系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <header class="header">
+            <h1>🤖 智能写字机控制系统</h1>
+            <p class="subtitle">自动查单词 • 智能抄写 • 精确书写</p>
+        </header>
+
+        <!-- 导航标签 -->
+        <nav class="tabs">
+            <button class="tab-button active" onclick="showTab('write')">✍️ 书写文字</button>
+            <button class="tab-button" onclick="showTab('auto-lookup')">📚 自动查词</button>
+            <button class="tab-button" onclick="showTab('auto-copy')">📝 自动抄写</button>
+            <button class="tab-button" onclick="showTab('import-words')">📥 导入单词</button>
+            <button class="tab-button" onclick="showTab('calibration')">📐 校准</button>
+            <button class="tab-button" onclick="showTab('markers')">🏷️ 生成标记</button>
+        </nav>
+
+        <!-- 主要内容区 -->
+        <main class="main-content">
+
+            <!-- 书写文字 -->
+            <section id="tab-write" class="tab-content active">
+                <div class="card">
+                    <h2>书写文字</h2>
+                    <div class="form-group">
+                        <label for="write-text">要书写的文字：</label>
+                        <textarea id="write-text" rows="4" placeholder="输入要书写的文字...">Hello World</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="use-handright">
+                            使用手写体渲染（中文）
+                        </label>
+                    </div>
+                    <button class="btn btn-primary" onclick="writeText()">生成书写代码</button>
+
+                    <div id="write-result" class="result" style="display: none;">
+                        <h3>生成结果</h3>
+                        <div class="preview-section">
+                            <img id="write-preview" alt="预览图" style="max-width: 100%;">
+                        </div>
+                        <a id="write-download" class="btn btn-success" download>下载Gcode</a>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 自动查单词 -->
+            <section id="tab-auto-lookup" class="tab-content">
+                <div class="card">
+                    <h2>自动查单词</h2>
+                    <div class="form-group">
+                        <label for="lookup-image">上传试卷图片：</label>
+                        <input type="file" id="lookup-image" accept="image/*" onchange="previewImage(this, 'lookup-preview')">
+                        <div class="preview-section">
+                            <img id="lookup-preview" alt="图片预览">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="known-words">已知单词（逗号分隔）：</label>
+                        <input type="text" id="known-words" placeholder="hello,world,test">
+                    </div>
+                    <button class="btn btn-primary" onclick="autoLookup()">开始处理</button>
+
+                    <div id="lookup-result" class="result" style="display: none;">
+                        <h3>处理结果</h3>
+                        <div class="preview-section">
+                            <img id="lookup-annotated" alt="标注结果">
+                        </div>
+                        <a id="lookup-download" class="btn btn-success" download>下载Gcode</a>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 自动抄写 -->
+            <section id="tab-auto-copy" class="tab-content">
+                <div class="card">
+                    <h2>自动抄写</h2>
+                    <div class="form-group">
+                        <label for="copy-image">上传横线本图片：</label>
+                        <input type="file" id="copy-image" accept="image/*" onchange="previewImage(this, 'copy-preview')">
+                        <div class="preview-section">
+                            <img id="copy-preview" alt="图片预览">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="copy-text">要抄写的文字：</label>
+                        <textarea id="copy-text" rows="4" placeholder="输入要抄写的文字..."></textarea>
+                    </div>
+                    <button class="btn btn-primary" onclick="autoCopy()">开始处理</button>
+
+                    <div id="copy-result" class="result" style="display: none;">
+                        <h3>处理结果</h3>
+                        <div class="preview-section">
+                            <img id="copy-layout" alt="布局预览">
+                        </div>
+                        <a id="copy-download" class="btn btn-success" download>下载Gcode</a>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 校准 -->
+            <section id="tab-calibration" class="tab-content">
+                <div class="card">
+                    <h2>写字机校准</h2>
+                    <div class="alert alert-info">
+                        <strong>校准步骤：</strong>
+                        <ol>
+                            <li>首先在"生成标记"页面生成并打印ArUco标记板</li>
+                            <li>将标记板固定在写字机工作区</li>
+                            <li>上传包含标记的照片</li>
+                            <li>输入每个标记的物理位置（毫米）</li>
+                        </ol>
+                    </div>
+                    <div class="form-group">
+                        <label for="calib-image">上传校准照片：</label>
+                        <input type="file" id="calib-image" accept="image/*" onchange="previewImage(this, 'calib-preview')">
+                        <div class="preview-section">
+                            <img id="calib-preview" alt="图片预览">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="marker-size">ArUco标记尺寸（毫米）：</label>
+                        <input type="number" id="marker-size" value="30" min="10" max="100">
+                    </div>
+                    <div class="form-group">
+                        <label>标记位置（毫米）：</label>
+                        <div id="marker-positions">
+                            <div class="marker-position-input">
+                                <label>标记 0:</label>
+                                <input type="number" class="marker-x" placeholder="X" value="10">
+                                <input type="number" class="marker-y" placeholder="Y" value="10">
+                            </div>
+                            <div class="marker-position-input">
+                                <label>标记 1:</label>
+                                <input type="number" class="marker-x" placeholder="X" value="207">
+                                <input type="number" class="marker-y" placeholder="Y" value="10">
+                            </div>
+                            <div class="marker-position-input">
+                                <label>标记 2:</label>
+                                <input type="number" class="marker-x" placeholder="X" value="207">
+                                <input type="number" class="marker-y" placeholder="Y" value="289">
+                            </div>
+                            <div class="marker-position-input">
+                                <label>标记 3:</label>
+                                <input type="number" class="marker-x" placeholder="X" value="10">
+                                <input type="number" class="marker-y" placeholder="Y" value="289">
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="calibrate()">开始校准</button>
+
+                    <div id="calib-result" class="result" style="display: none;"></div>
+                </div>
+            </section>
+
+            <!-- 导入单词 -->
+            <section id="tab-import-words" class="tab-content">
+                <div class="card">
+                    <h2>导入单词</h2>
+                    <div class="alert alert-info">
+                        <strong>功能说明：</strong>
+                        <p>从有道单词本JSON文件导入单词，选择不会的单词添加到数据库。</p>
+                        <p>JSON文件来源：<a href="https://github.com/kajweb/dict" target="_blank">https://github.com/kajweb/dict</a></p>
+                    </div>
+
+                    <!-- 步骤1: 上传文件 -->
+                    <div id="import-step-1">
+                        <div class="form-group">
+                            <label for="word-json-file">上传单词JSON文件：</label>
+                            <input type="file" id="word-json-file" accept=".json" onchange="uploadWordJSON()">
+                        </div>
+                    </div>
+
+                    <!-- 步骤2: 选择单词 -->
+                    <div id="import-step-2" style="display: none;">
+                        <div class="form-group">
+                            <label>单词列表（勾选表示已掌握，将加入数据库）：</label>
+                            <div class="word-list-controls">
+                                <button class="btn btn-small" onclick="selectAllWords()">全选</button>
+                                <button class="btn btn-small" onclick="deselectAllWords()">取消全选</button>
+                                <button class="btn btn-small" onclick="invertSelection()">反选</button>
+                                <span id="selected-count">已选择: 0</span>
+                            </div>
+                            <div id="word-list" class="word-list"></div>
+                        </div>
+                        <button class="btn btn-success" onclick="addSelectedWords()">添加选中的单词到数据库</button>
+                        <button class="btn btn-secondary" onclick="resetImport()">重新上传</button>
+                    </div>
+
+                    <!-- 结果显示 -->
+                    <div id="import-result" class="result" style="display: none;"></div>
+                </div>
+            </section>
+
+            <!-- 生成标记 -->
+            <section id="tab-markers" class="tab-content">
+                <div class="card">
+                    <h2>生成ArUco标记</h2>
+                    <div class="form-group">
+                        <label for="num-markers">标记数量：</label>
+                        <input type="number" id="num-markers" value="4" min="1" max="20">
+                    </div>
+                    <div class="form-group">
+                        <label for="marker-size-gen">标记大小（像素）：</label>
+                        <input type="number" id="marker-size-gen" value="200" min="50" max="1000">
+                    </div>
+                    <button class="btn btn-primary" onclick="generateMarkers()">生成标记板</button>
+
+                    <div id="markers-result" class="result" style="display: none;">
+                        <h3>生成结果</h3>
+                        <div class="preview-section">
+                            <img id="markers-preview" alt="ArUco标记板">
+                        </div>
+                        <a id="markers-download" class="btn btn-success" download>下载标记板</a>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- 页脚 -->
+        <footer class="footer">
+            <p>智能写字机控制系统 v1.0 | 基于Flask & Python</p>
+        </footer>
+    </div>
+
+    <!-- 加载提示 -->
+    <div id="loading" class="loading" style="display: none;">
+        <div class="spinner"></div>
+        <p>处理中，请稍候...</p>
+    </div>
+
+    <!-- 通知 -->
+    <div id="notification" class="notification" style="display: none;"></div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

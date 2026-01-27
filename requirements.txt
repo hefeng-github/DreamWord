@@ -18,3 +18,7 @@ torch>=2.0.0
 
 # 串口通信
 pyserial>=3.5
+
+# Web界面
+flask>=3.0.0
+werkzeug>=3.0.0

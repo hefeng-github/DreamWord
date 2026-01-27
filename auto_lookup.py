@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 
 try:
+    import torch
     from paddleocr import PaddleOCR
     PADDLEOCR_AVAILABLE = True
 except ImportError:

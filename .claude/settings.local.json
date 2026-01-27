@@ -7,7 +7,10 @@
       "Bash(git commit:*)",
       "Bash(python:*)",
       "Bash(ls:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(chmod:*)",
+      "mcp__web-reader__webReader",
+      "Bash(del:*)"
     ]
   }
 }

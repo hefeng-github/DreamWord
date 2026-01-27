@@ -1,0 +1,21 @@
+# Web界面基础依赖（必需）
+flask>=3.0.0
+werkzeug>=3.0.0
+opencv-python>=4.8.0
+pillow>=10.0.0
+numpy>=1.24.0
+
+# OCR功能（可选，用于自动查词和自动抄写）
+# 如需使用这些功能，请取消下面的注释
+# paddlepaddle>=2.5.0
+# paddleocr>=2.7.0
+
+# 手写体渲染（可选）
+# handright>=1.2.0
+
+# AI语义匹配（可选，用于单词查询）
+# sentence-transformers>=2.2.0
+# torch>=2.0.0
+
+# 串口通信（可选）
+# pyserial>=3.5
