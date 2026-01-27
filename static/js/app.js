@@ -2,7 +2,7 @@
 const API_BASE = '';
 
 // 显示/隐藏标签页
-function showTab(tabName) {
+function showTab(tabName, event) {
     // 隐藏所有标签内容
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
@@ -17,7 +17,9 @@ function showTab(tabName) {
     document.getElementById(`tab-${tabName}`).classList.add('active');
 
     // 激活对应按钮
-    event.target.classList.add('active');
+    if (event && event.target) {
+        event.target.classList.add('active');
+    }
 }
 
 // 显示/隐藏加载提示
@@ -321,6 +323,10 @@ async function autoCopy() {
 
 // 导入单词相关变量
 let importedWords = [];
+let currentWordIndex = 0;
+let knownWordsInCard = [];
+let unknownWordsInCard = [];
+let importMode = 'list'; // 'list' 或 'card'
 
 // 上传并解析单词JSON文件
 async function uploadWordJSON() {
@@ -471,21 +477,6 @@ async function uploadWordJSON() {
         hideLoading();
     }
 }
-        displayWordList();
-
-        // 切换到步骤2
-        document.getElementById('import-step-1').style.display = 'none';
-        document.getElementById('import-step-2').style.display = 'block';
-
-        showNotification(`成功导入 ${importedWords.length} 个单词`, 'success');
-
-    } catch (error) {
-        showNotification('文件读取失败：' + error.message, 'error');
-        console.error('错误详情:', error);
-    } finally {
-        hideLoading();
-    }
-}
 
 // 显示单词列表
 function displayWordList() {
@@ -626,9 +617,57 @@ async function addSelectedWords() {
 
 // 重置导入
 function resetImport() {
+    // 移除键盘监听
+    document.removeEventListener('keydown', handleCardKeyPress);
+
+    // 重置状态
+    importMode = 'list';
+    currentWordIndex = 0;
+    knownWordsInCard = [];
+    unknownWordsInCard = [];
+
+    // 重置UI
     document.getElementById('import-step-1').style.display = 'block';
     document.getElementById('import-step-2').style.display = 'none';
     document.getElementById('import-result').style.display = 'none';
+    document.getElementById('import-mode-list').style.display = 'block';
+    document.getElementById('import-mode-card').style.display = 'none';
+    document.getElementById('mode-list-btn').classList.add('active');
+    document.getElementById('mode-card-btn').classList.remove('active');
+
+    // 重新创建卡片容器（恢复初始状态）
+    const cardContainer = document.querySelector('.word-card-container');
+    if (cardContainer) {
+        cardContainer.innerHTML = `
+            <div class="word-card">
+                <div class="word-card-current" id="current-word">加载中...</div>
+                <div class="word-card-actions">
+                    <button class="word-card-btn unknown" onclick="markWord('unknown')">
+                        不认识
+                        <span style="display: block; font-size: 0.7em; margin-top: 5px; opacity: 0.8;">
+                            ← 或 A
+                        </span>
+                    </button>
+                    <button class="word-card-btn known" onclick="markWord('known')">
+                        认识
+                        <span style="display: block; font-size: 0.7em; margin-top: 5px; opacity: 0.8;">
+                            → 或 D
+                        </span>
+                    </button>
+                </div>
+            </div>
+            <div class="word-card-progress">
+                <div class="word-card-progress-text" id="progress-text">进度: 0 / 0</div>
+                <div class="word-card-progress-bar">
+                    <div class="word-card-progress-fill" id="progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+            <div style="text-align: center; margin-top: 15px; color: #6c757d; font-size: 0.9em;">
+                💡 提示：使用键盘方向键或 A/D 键快速标记
+            </div>
+        `;
+    }
+
     document.getElementById('word-json-file').value = '';
     importedWords = [];
 }
@@ -656,5 +695,209 @@ async function checkBackendFeatures() {
     } catch (error) {
         console.warn('⚠ 后端服务连接失败:', error);
         showNotification('无法连接到后端服务，某些功能可能不可用', 'info');
+    }
+}
+
+// 切换导入模式
+function switchImportMode(mode) {
+    importMode = mode;
+
+    const listMode = document.getElementById('import-mode-list');
+    const cardMode = document.getElementById('import-mode-card');
+    const listBtn = document.getElementById('mode-list-btn');
+    const cardBtn = document.getElementById('mode-card-btn');
+
+    if (mode === 'list') {
+        listMode.style.display = 'block';
+        cardMode.style.display = 'none';
+        listBtn.classList.add('active');
+        cardBtn.classList.remove('active');
+
+        // 移除键盘监听
+        document.removeEventListener('keydown', handleCardKeyPress);
+    } else {
+        listMode.style.display = 'none';
+        cardMode.style.display = 'block';
+        listBtn.classList.remove('active');
+        cardBtn.classList.add('active');
+
+        // 初始化卡片模式
+        initCardMode();
+
+        // 添加键盘监听
+        document.addEventListener('keydown', handleCardKeyPress);
+    }
+}
+
+// 处理卡片模式的键盘按键
+function handleCardKeyPress(event) {
+    // 只在卡片模式下响应
+    if (importMode !== 'card') return;
+
+    // 防止按键触发其他行为
+    const key = event.key.toLowerCase();
+
+    // 左箭头 或 A键：不认识
+    if (event.key === 'ArrowLeft' || key === 'a') {
+        event.preventDefault();
+        markWord('unknown');
+        addButtonAnimation('unknown');
+    }
+    // 右箭头 或 D键：认识
+    else if (event.key === 'ArrowRight' || key === 'd') {
+        event.preventDefault();
+        markWord('known');
+        addButtonAnimation('known');
+    }
+}
+
+// 按钮点击动画效果
+function addButtonAnimation(type) {
+    const button = document.querySelector(`.word-card-btn.${type}`);
+    if (button) {
+        button.style.transform = 'scale(0.95)';
+        setTimeout(() => {
+            button.style.transform = '';
+        }, 100);
+    }
+}
+
+// 初始化卡片模式
+function initCardMode() {
+    currentWordIndex = 0;
+    knownWordsInCard = [];
+    unknownWordsInCard = [];
+
+    if (importedWords.length === 0) {
+        showNotification('没有可用的单词', 'error');
+        switchImportMode('list');
+        return;
+    }
+
+    updateCardDisplay();
+    updateCardProgress();
+}
+
+// 更新卡片显示
+function updateCardDisplay() {
+    const currentWordEl = document.getElementById('current-word');
+
+    if (currentWordIndex >= importedWords.length) {
+        // 完成所有单词
+        showCardSummary();
+        return;
+    }
+
+    const word = importedWords[currentWordIndex];
+    currentWordEl.textContent = word.word;
+}
+
+// 更新卡片进度
+function updateCardProgress() {
+    const progressText = document.getElementById('progress-text');
+    const progressFill = document.getElementById('progress-fill');
+
+    const total = importedWords.length;
+    const current = currentWordIndex;
+    const percentage = (current / total) * 100;
+
+    progressText.textContent = `进度: ${current} / ${total}`;
+    progressFill.style.width = `${percentage}%`;
+}
+
+// 标记单词
+function markWord(type) {
+    if (currentWordIndex >= importedWords.length) {
+        return;
+    }
+
+    const word = importedWords[currentWordIndex];
+
+    if (type === 'known') {
+        knownWordsInCard.push(word);
+    } else {
+        unknownWordsInCard.push(word);
+    }
+
+    currentWordIndex++;
+    updateCardDisplay();
+    updateCardProgress();
+}
+
+// 显示卡片完成摘要
+function showCardSummary() {
+    const container = document.querySelector('.word-card-container');
+
+    container.innerHTML = `
+        <div class="word-card-summary">
+            <h3>🎉 完成！</h3>
+            <div class="word-card-summary-stats">
+                <div class="word-card-summary-stat">
+                    <div class="word-card-summary-stat-value known">${knownWordsInCard.length}</div>
+                    <div class="word-card-summary-stat-label">认识</div>
+                </div>
+                <div class="word-card-summary-stat">
+                    <div class="word-card-summary-stat-value unknown">${unknownWordsInCard.length}</div>
+                    <div class="word-card-summary-stat-label">不认识</div>
+                </div>
+            </div>
+            <p style="color: #6c757d; margin-bottom: 20px;">
+                已标记 ${unknownWordsInCard.length} 个单词为"不认识"，将添加到数据库
+            </p>
+            <div class="word-card-complete-actions">
+                <button class="btn btn-success" onclick="submitCardResults()">提交到数据库</button>
+                <button class="btn btn-secondary" onclick="resetImport()">重新上传</button>
+            </div>
+        </div>
+    `;
+}
+
+// 提交卡片结果
+async function submitCardResults() {
+    if (unknownWordsInCard.length === 0) {
+        showNotification('没有需要添加的单词', 'info');
+        resetImport();
+        return;
+    }
+
+    showLoading();
+
+    const wordsToAdd = unknownWordsInCard.map(item => item.word);
+
+    try {
+        const response = await fetch(`${API_BASE}/api/add-known-words`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                words: wordsToAdd
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            const resultDiv = document.getElementById('import-result');
+            resultDiv.innerHTML = `
+                <div class="alert alert-success">
+                    <strong>添加成功！</strong><br>
+                    成功添加 ${data.added_count} 个单词到数据库。<br>
+                    ${data.skipped_count > 0 ? `跳过 ${data.skipped_count} 个已存在的单词。` : ''}
+                </div>
+            `;
+            resultDiv.style.display = 'block';
+
+            showNotification('添加成功！', 'success');
+            setTimeout(() => {
+                resetImport();
+            }, 2000);
+        } else {
+            showNotification(data.error || '添加失败', 'error');
+        }
+    } catch (error) {
+        showNotification('网络错误：' + error.message, 'error');
+    } finally {
+        hideLoading();
     }
 }
