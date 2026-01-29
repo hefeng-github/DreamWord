@@ -901,3 +901,145 @@ async function submitCardResults() {
         hideLoading();
     }
 }
+
+// ==================== 摄像头功能 ====================
+
+// 存储摄像头流
+const cameraStreams = {
+    lookup: null,
+    copy: null,
+    calib: null
+};
+
+// 启动摄像头
+async function startCamera(prefix) {
+    const video = document.getElementById(`${prefix}-video`);
+    const container = document.getElementById(`${prefix}-camera-container`);
+    const button = container.parentElement.querySelector('.camera-button');
+
+    // 检查浏览器支持
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showNotification('您的浏览器不支持摄像头功能', 'error');
+        return;
+    }
+
+    try {
+        // 请求摄像头权限
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: 'environment', // 优先使用后置摄像头
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+            }
+        });
+
+        // 保存流
+        cameraStreams[prefix] = stream;
+
+        // 设置视频源
+        video.srcObject = stream;
+        video.style.display = 'block';
+
+        // 显示视频容器
+        container.style.display = 'block';
+        button.disabled = true;
+        button.textContent = '📷 摄像头已启动';
+
+        showNotification('摄像头已启动', 'success');
+
+    } catch (error) {
+        console.error('摄像头访问失败:', error);
+        if (error.name === 'NotAllowedError') {
+            showNotification('请允许访问摄像头', 'error');
+        } else if (error.name === 'NotFoundError') {
+            showNotification('未检测到摄像头设备', 'error');
+        } else {
+            showNotification('摄像头启动失败: ' + error.message, 'error');
+        }
+    }
+}
+
+// 拍照
+function capturePhoto(prefix) {
+    const video = document.getElementById(`${prefix}-video`);
+    const canvas = document.getElementById(`${prefix}-canvas`);
+    const preview = document.getElementById(`${prefix}-preview`);
+
+    if (!cameraStreams[prefix]) {
+        showNotification('请先启动摄像头', 'error');
+        return;
+    }
+
+    // 设置canvas尺寸与视频一致
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    // 绘制当前帧
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // 转换为图片URL
+    const imageUrl = canvas.toDataURL('image/png');
+
+    // 显示预览
+    preview.src = imageUrl;
+    preview.style.display = 'inline-block';
+
+    // 创建文件对象
+    canvas.toBlob(function(blob) {
+        // 创建File对象
+        const file = new File([blob], `camera_${prefix}_${Date.now()}.png`, {
+            type: 'image/png'
+        });
+
+        // 创建FileList对象
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+
+        // 设置到文件输入框
+        const fileInput = document.getElementById(`${prefix === 'lookup' ? 'lookup' : prefix === 'copy' ? 'copy' : 'calib'}-image`);
+        fileInput.files = dataTransfer.files;
+
+        showNotification('拍照成功！', 'success');
+
+        // 关闭摄像头
+        stopCamera(prefix);
+    }, 'image/png');
+}
+
+// 关闭摄像头
+function stopCamera(prefix) {
+    const video = document.getElementById(`${prefix}-video`);
+    const container = document.getElementById(`${prefix}-camera-container`);
+    const button = container.parentElement.querySelector('.camera-button');
+
+    if (cameraStreams[prefix]) {
+        // 停止所有轨道
+        const tracks = cameraStreams[prefix].getTracks();
+        tracks.forEach(track => track.stop());
+
+        // 清空流
+        cameraStreams[prefix] = null;
+
+        // 清空视频源
+        video.srcObject = null;
+        video.style.display = 'none';
+
+        // 隐藏视频容器
+        container.style.display = 'none';
+        button.disabled = false;
+        button.textContent = '📷 使用摄像头拍照';
+
+        showNotification('摄像头已关闭', 'info');
+    }
+}
+
+// 页面卸载时关闭所有摄像头
+window.addEventListener('beforeunload', function() {
+    Object.keys(cameraStreams).forEach(prefix => {
+        if (cameraStreams[prefix]) {
+            const tracks = cameraStreams[prefix].getTracks();
+            tracks.forEach(track => track.stop());
+        }
+    });
+});

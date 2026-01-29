@@ -60,6 +60,23 @@
                     <div class="form-group">
                         <label for="lookup-image">上传试卷图片：</label>
                         <input type="file" id="lookup-image" accept="image/*" onchange="previewImage(this, 'lookup-preview')">
+                        <div class="camera-section">
+                            <button type="button" class="camera-button" onclick="startCamera('lookup')">
+                                📷 使用摄像头拍照
+                            </button>
+                            <div class="camera-video-container" id="lookup-camera-container" style="display: none;">
+                                <video id="lookup-video" class="camera-video" autoplay playsinline></video>
+                                <canvas id="lookup-canvas" class="camera-canvas"></canvas>
+                                <div class="camera-controls">
+                                    <button type="button" class="camera-capture-btn" onclick="capturePhoto('lookup')">
+                                        📸 拍照
+                                    </button>
+                                    <button type="button" class="camera-stop-btn" onclick="stopCamera('lookup')">
+                                        ❌ 关闭摄像头
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                         <div class="preview-section">
                             <img id="lookup-preview" alt="图片预览">
                         </div>
@@ -87,6 +104,23 @@
                     <div class="form-group">
                         <label for="copy-image">上传横线本图片：</label>
                         <input type="file" id="copy-image" accept="image/*" onchange="previewImage(this, 'copy-preview')">
+                        <div class="camera-section">
+                            <button type="button" class="camera-button" onclick="startCamera('copy')">
+                                📷 使用摄像头拍照
+                            </button>
+                            <div class="camera-video-container" id="copy-camera-container" style="display: none;">
+                                <video id="copy-video" class="camera-video" autoplay playsinline></video>
+                                <canvas id="copy-canvas" class="camera-canvas"></canvas>
+                                <div class="camera-controls">
+                                    <button type="button" class="camera-capture-btn" onclick="capturePhoto('copy')">
+                                        📸 拍照
+                                    </button>
+                                    <button type="button" class="camera-stop-btn" onclick="stopCamera('copy')">
+                                        ❌ 关闭摄像头
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                         <div class="preview-section">
                             <img id="copy-preview" alt="图片预览">
                         </div>
@@ -123,6 +157,23 @@
                     <div class="form-group">
                         <label for="calib-image">上传校准照片：</label>
                         <input type="file" id="calib-image" accept="image/*" onchange="previewImage(this, 'calib-preview')">
+                        <div class="camera-section">
+                            <button type="button" class="camera-button" onclick="startCamera('calib')">
+                                📷 使用摄像头拍照
+                            </button>
+                            <div class="camera-video-container" id="calib-camera-container" style="display: none;">
+                                <video id="calib-video" class="camera-video" autoplay playsinline></video>
+                                <canvas id="calib-canvas" class="camera-canvas"></canvas>
+                                <div class="camera-controls">
+                                    <button type="button" class="camera-capture-btn" onclick="capturePhoto('calib')">
+                                        📸 拍照
+                                    </button>
+                                    <button type="button" class="camera-stop-btn" onclick="stopCamera('calib')">
+                                        ❌ 关闭摄像头
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                         <div class="preview-section">
                             <img id="calib-preview" alt="图片预览">
                         </div>
