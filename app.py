@@ -848,44 +848,105 @@ def api_printer_upload():
         return jsonify({'success': False, 'error': str(e)})
 
 
-@app.route('/api/printer/config', methods=['GET', 'POST'])
+@app.route('/api/printer/config', methods=['GET'])
 def api_printer_config():
-    """获取或保存打印机配置"""
+    """获取打印机配置"""
     try:
-        if request.method == 'GET':
-            # 获取配置
-            # 这里可以从打印机或本地存储获取当前配置
-            config = {
-                'printer_model': 'A1MINI',
-                'printer_ip': '',
-                'access_code': '',
-                'offset_x': 0,
-                'offset_y': 0,
-                'z_pen_up': 5.0,
-                'z_pen_down': 0.2,
-                'origin_mode': 'center',
-                'beep_enabled': True
+        # 这里可以从打印机或本地存储获取当前配置
+        config = {
+            'offsetX': 0.0,
+            'offsetY': 0.0,
+            'liftZ': 5.0,
+            'dropZ': 0.2,
+            'originMode': 'auto',
+            'soundEnabled': True
+        }
+
+        return jsonify({
+            'success': True,
+            'config': config
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/printer/connect', methods=['POST'])
+def api_printer_connect():
+    """连接打印机"""
+    try:
+        data = request.json
+        printer_model = data.get('printer_model', 'A1MINI')
+        ip = data.get('ip', '')
+        access_code = data.get('access_code', '')
+
+        print(f"[连接打印机] 型号: {printer_model}, IP: {ip}")
+
+        # 验证参数
+        if not ip:
+            return jsonify({
+                'success': False,
+                'error': '请输入打印机IP地址'
+            })
+
+        # 这里可以尝试实际连接打印机
+        # 暂时模拟成功连接
+        print(f"[连接成功] {printer_model} @ {ip}")
+
+        return jsonify({
+            'success': True,
+            'message': '打印机连接成功',
+            'printer_info': {
+                'model': printer_model,
+                'ip': ip,
+                'firmware': '01.08.02.00'
             }
+        })
 
-            return jsonify({
-                'success': True,
-                'config': config
-            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
-        else:  # POST
-            # 保存配置
-            data = request.json
-            config = data.get('config', {})
 
-            print(f"[保存配置] {config}")
+@app.route('/api/printer/upload', methods=['POST'])
+def api_printer_upload():
+    """上传页面到打印机"""
+    try:
+        data = request.json
+        page = data.get('page', 1)
+        config = data.get('config', {})
 
-            # 这里可以保存配置到文件或发送到打印机
+        print(f"[上传页面] 页面: {page}, 配置: {config}")
 
-            return jsonify({
-                'success': True,
-                'message': '配置保存成功',
-                'config': config
-            })
+        # 这里可以实际发送配置到打印机
+        # 暂时模拟上传成功
+
+        return jsonify({
+            'success': True,
+            'message': f'页面 {page} 上传成功',
+            'page': page
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/printer/delete', methods=['POST'])
+def api_printer_delete():
+    """删除打印机页面"""
+    try:
+        data = request.json
+        page = data.get('page', 1)
+
+        print(f"[删除页面] 页面: {page}")
+
+        # 这里可以实际删除打印机上的页面
+        # 暂时模拟删除成功
+
+        return jsonify({
+            'success': True,
+            'message': f'页面 {page} 删除成功',
+            'page': page
+        })
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
