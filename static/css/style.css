@@ -953,6 +953,62 @@ body {
     border: 1px solid #e8e8e8;
 }
 
+/* 默认打印机徽章 */
+.bambu-default-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #FF6B35, #F7931E);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-weight: 600;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+/* 配置操作按钮 */
+.bambu-config-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    justify-content: flex-end;
+}
+
+.bambu-action-btn {
+    padding: 6px 12px;
+    border: 1px solid #FF6B35;
+    background: white;
+    color: #FF6B35;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85em;
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
+
+.bambu-action-btn:hover:not(:disabled) {
+    background: #FF6B35;
+    color: white;
+}
+
+.bambu-action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: #f0f0f0;
+    border-color: #ccc;
+    color: #999;
+}
+
+.bambu-delete-btn {
+    border-color: #dc3545;
+    color: #dc3545;
+}
+
+.bambu-delete-btn:hover:not(:disabled) {
+    background: #dc3545;
+    color: white;
+}
+
 .bambu-no-config {
     text-align: center;
     padding: 60px 20px;

@@ -9,8 +9,9 @@ Bambu 打印机摄像头模块
 
 import os
 import base64
+import yaml
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 import io
 
 
@@ -256,17 +257,29 @@ class BambuCameraManager:
     管理多个摄像头配置，提供便捷的接口
     """
 
-    def __init__(self):
-        """初始化管理器"""
+    # 配置文件路径
+    CONFIG_FILE = Path(__file__).parent / 'bambu_config.yaml'
+
+    def __init__(self, auto_load: bool = True):
+        """初始化管理器
+
+        Args:
+            auto_load: 是否自动加载配置文件
+        """
         self._configs: Dict[str, BambuCameraConfig] = {}
         self._cameras: Dict[str, BambuCamera] = {}
+        self._default_printer: Optional[str] = None
+
+        if auto_load:
+            self.load_from_yaml()
 
     def add_config(
         self,
         name: str,
         printer_ip: str,
         access_code: str,
-        printer_model: str = 'A1MINI'
+        printer_model: str = 'A1MINI',
+        auto_save: bool = True
     ) -> Tuple[bool, str]:
         """
         添加摄像头配置
@@ -276,6 +289,7 @@ class BambuCameraManager:
             printer_ip: 打印机 IP 地址
             access_code: 访问码
             printer_model: 打印机型号
+            auto_save: 是否自动保存到配置文件
 
         Returns:
             (是否成功, 消息)
@@ -291,6 +305,17 @@ class BambuCameraManager:
             return False, error
 
         self._configs[name] = config
+
+        # 自动保存配置
+        if auto_save:
+            self.save_to_yaml()
+
+        # 如果是第一个配置，自动设为默认
+        if len(self._configs) == 1 and self._default_printer is None:
+            self._default_printer = name
+            if auto_save:
+                self.save_to_yaml()
+
         return True, f"配置 '{name}' 已添加"
 
     def get_camera(self, name: str) -> Optional[BambuCamera]:
@@ -345,9 +370,146 @@ class BambuCameraManager:
                 del self._cameras[name]
 
             del self._configs[name]
+
+            # 如果是默认打印机，清除默认设置
+            if self._default_printer == name:
+                self._default_printer = None
+
+            # 自动保存
+            self.save_to_yaml()
+
             return True, f"配置 '{name}' 已移除"
         else:
             return False, f"配置 '{name}' 不存在"
+
+    def load_from_yaml(self, config_path: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        从 YAML 文件加载配置
+
+        Args:
+            config_path: 配置文件路径（可选，默认使用 bambu_config.yaml）
+
+        Returns:
+            (是否成功, 消息)
+        """
+        if config_path is None:
+            config_path = self.CONFIG_FILE
+
+        config_file = Path(config_path)
+
+        # 如果配置文件不存在，创建默认配置
+        if not config_file.exists():
+            print(f"[INFO] 配置文件不存在，创建默认配置: {config_file}")
+            self.save_to_yaml(config_path)
+            return True, "已创建默认配置文件"
+
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+
+            if not data or 'printers' not in data:
+                print("[WARN] 配置文件为空或格式不正确")
+                return True, "配置文件为空"
+
+            # 加载打印机配置
+            for printer_data in data.get('printers', []):
+                try:
+                    success, message = self.add_config(
+                        name=printer_data['name'],
+                        printer_ip=printer_data['ip'],
+                        access_code=printer_data['access_code'],
+                        printer_model=printer_data.get('model', 'A1MINI'),
+                        auto_save=False  # 避免循环保存
+                    )
+                    if success:
+                        print(f"[OK] 已加载配置: {printer_data['name']}")
+                    else:
+                        print(f"[ERROR] 加载配置失败: {printer_data['name']} - {message}")
+                except Exception as e:
+                    print(f"[ERROR] 解析配置失败: {printer_data.get('name', 'Unknown')} - {e}")
+
+            # 加载默认打印机
+            default_printer = data.get('default_printer')
+            if default_printer and default_printer in self._configs:
+                self._default_printer = default_printer
+                print(f"[OK] 默认打印机: {default_printer}")
+
+            loaded_count = len(self._configs)
+            return True, f"已加载 {loaded_count} 个配置"
+
+        except yaml.YAMLError as e:
+            print(f"[ERROR] YAML 解析失败: {e}")
+            return False, f"YAML 格式错误: {e}"
+        except Exception as e:
+            print(f"[ERROR] 加载配置失败: {e}")
+            return False, f"加载失败: {e}"
+
+    def save_to_yaml(self, config_path: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        保存配置到 YAML 文件
+
+        Args:
+            config_path: 配置文件路径（可选，默认使用 bambu_config.yaml）
+
+        Returns:
+            (是否成功, 消息)
+        """
+        if config_path is None:
+            config_path = self.CONFIG_FILE
+
+        config_file = Path(config_path)
+
+        try:
+            # 构建配置数据
+            data = {
+                'version': '1.0',
+                'default_printer': self._default_printer,
+                'printers': []
+            }
+
+            # 添加打印机配置
+            for name, config in self._configs.items():
+                printer_data = {
+                    'name': name,
+                    'ip': config.printer_ip,
+                    'access_code': config.access_code,
+                    'model': config.printer_model
+                }
+                data['printers'].append(printer_data)
+
+            # 确保目录存在
+            config_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # 写入文件
+            with open(config_file, 'w', encoding='utf-8') as f:
+                yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+            return True, f"配置已保存到: {config_file}"
+
+        except Exception as e:
+            print(f"[ERROR] 保存配置失败: {e}")
+            return False, f"保存失败: {e}"
+
+    def get_default_printer(self) -> Optional[str]:
+        """获取默认打印机名称"""
+        return self._default_printer
+
+    def set_default_printer(self, name: str) -> Tuple[bool, str]:
+        """
+        设置默认打印机
+
+        Args:
+            name: 打印机配置名称
+
+        Returns:
+            (是否成功, 消息)
+        """
+        if name not in self._configs:
+            return False, f"配置 '{name}' 不存在"
+
+        self._default_printer = name
+        self.save_to_yaml()
+        return True, f"默认打印机已设置为: {name}"
 
 
 # 全局管理器实例

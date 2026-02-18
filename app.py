@@ -28,6 +28,13 @@ except ImportError:
     print("警告: bambu-lab-cloud-api 未安装，打印机摄像头功能将不可用")
     print("如需使用摄像头功能，请运行: pip install bambu-lab-cloud-api")
 
+# 初始化摄像头管理器（自动加载配置）
+try:
+    camera_manager = get_camera_manager()
+    print(f"[OK] Bambu 摄像头管理器已初始化")
+except Exception as e:
+    print(f"[警告] Bambu 摄像头管理器初始化失败: {e}")
+
 # 延迟导入标志
 AUTO_LOOKUP_AVAILABLE = False
 AUTO_COPY_AVAILABLE = False

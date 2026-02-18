@@ -1,0 +1,11 @@
+version: '1.0'
+default_printer: 测试A1mini
+printers:
+- name: 测试A1mini
+  ip: 192.168.1.100
+  access_code: '12345678'
+  model: A1MINI
+- name: 测试P1P
+  ip: 192.168.1.101
+  access_code: '87654321'
+  model: P1P

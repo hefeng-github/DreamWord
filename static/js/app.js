@@ -1116,14 +1116,31 @@ async function loadAndDisplayBambuConfigs() {
             'X1C': '256×256×256mm'
         };
         const workArea = workAreas[config.model] || '未知';
+        const isDefault = config.name === bambuDefaultPrinter;
 
         return `
         <div class="bambu-config-item" data-config-name="${config.name}">
-            <div class="bambu-config-name">${config.name}</div>
+            <div class="bambu-config-name">
+                ${config.name}
+                ${isDefault ? '<span class="bambu-default-badge">✓ 默认</span>' : ''}
+            </div>
             <div class="bambu-config-info">
                 <span>IP: ${config.ip}</span>
                 <span>型号: ${config.model}</span>
                 <span>行程: ${workArea}</span>
+            </div>
+            <div class="bambu-config-actions">
+                <button class="bambu-action-btn bambu-set-default-btn"
+                        data-config="${config.name}"
+                        title="${isDefault ? '已是默认' : '设为默认'}"
+                        ${isDefault ? 'disabled' : ''}>
+                    ${isDefault ? '✓ 默认' : '设为默认'}
+                </button>
+                <button class="bambu-action-btn bambu-delete-btn"
+                        data-config="${config.name}"
+                        title="删除配置">
+                    🗑️ 删除
+                </button>
             </div>
         </div>
         `;
@@ -1132,9 +1149,29 @@ async function loadAndDisplayBambuConfigs() {
     // 为每个配置项添加点击事件监听器
     setTimeout(() => {
         document.querySelectorAll('.bambu-config-item').forEach(item => {
-            item.addEventListener('click', function() {
+            item.addEventListener('click', function(e) {
+                // 如果点击的是按钮，不触发生效选择
+                if (e.target.classList.contains('bambu-action-btn')) {
+                    return;
+                }
                 const configName = this.getAttribute('data-config-name');
                 selectBambuConfig(configName, this);
+            });
+        });
+
+        // 为"设为默认"按钮添加事件监听器
+        document.querySelectorAll('.bambu-set-default-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const configName = this.getAttribute('data-config');
+                await setBambuDefaultPrinter(configName);
+            });
+        });
+
+        // 为"删除"按钮添加事件监听器
+        document.querySelectorAll('.bambu-delete-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const configName = this.getAttribute('data-config');
+                await removeBambuConfig(configName);
             });
         });
     }, 0);
