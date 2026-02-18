@@ -16,6 +16,17 @@ import json
 # 导入项目模块（基础模块，无重型依赖）
 from calibration import Calibrator, ArUcoMarkerGenerator
 from writer import WriterMachine
+from bambu_adapter import BambuPrinterAdapter, PrinterConfig
+from bambu_camera import get_camera_manager, BambuCameraConfig, BambuCamera
+
+# 摄像头功能可用性
+BAMBU_CAMERA_AVAILABLE = False
+try:
+    from bambulab import JPEGFrameStream, RTSPStream
+    BAMBU_CAMERA_AVAILABLE = True
+except ImportError:
+    print("警告: bambu-lab-cloud-api 未安装，打印机摄像头功能将不可用")
+    print("如需使用摄像头功能，请运行: pip install bambu-lab-cloud-api")
 
 # 延迟导入标志
 AUTO_LOOKUP_AVAILABLE = False
@@ -79,6 +90,54 @@ def api_generate_markers():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@app.route('/api/draw-markers', methods=['POST'])
+def api_draw_markers():
+    """生成绘制ArUco标记的Gcode"""
+    try:
+        data = request.json
+
+        # 获取标记位置
+        marker_positions = {}
+        positions_data = data.get('positions', {})
+
+        for marker_id, pos in positions_data.items():
+            marker_positions[int(marker_id)] = (float(pos['x']), float(pos['y']))
+
+        # 获取标记尺寸
+        marker_size = float(data.get('marker_size', 30.0))
+
+        # 创建校准器并生成Gcode
+        calibrator = Calibrator(marker_size=marker_size)
+
+        gcode_file = f"draw_markers_{uuid.uuid4().hex[:8]}.gcode"
+        preview_file = f"draw_markers_{uuid.uuid4().hex[:8]}.png"
+
+        gcode_path = os.path.join(app.config['UPLOAD_FOLDER'], gcode_file)
+        preview_path = os.path.join(app.config['UPLOAD_FOLDER'], preview_file)
+
+        gcode = calibrator.generate_markers_gcode(
+            marker_positions=marker_positions,
+            marker_size_mm=marker_size,
+            gcode_path=gcode_path,
+            preview_path=preview_path
+        )
+
+        if gcode:
+            return jsonify({
+                'success': True,
+                'gcode_file': gcode_file,
+                'preview_file': preview_file,
+                'gcode_url': f'/api/download/{gcode_file}',
+                'preview_url': f'/api/download/{preview_file}',
+                'message': '标记绘制Gcode生成成功'
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Gcode生成失败'})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/api/calibrate', methods=['POST'])
 def api_calibrate():
     """校准写字机"""
@@ -132,11 +191,20 @@ def api_write():
         data = request.json
         text = data.get('text', '')
         use_handright = data.get('use_handright', False)
+        printer_model = data.get('printer_model', 'A1MINI')
+        layer_height = data.get('layer_height', 0.2)
+        nozzle_temp = data.get('nozzle_temp', 200)
+        bed_temp = data.get('bed_temp', 60)
 
         if not text:
             return jsonify({'success': False, 'error': '文字不能为空'})
 
-        writer = WriterMachine()
+        writer = WriterMachine(
+            printer_model=printer_model,
+            layer_height=layer_height,
+            nozzle_temp=nozzle_temp,
+            bed_temp=bed_temp
+        )
 
         filename = f"write_{uuid.uuid4().hex[:8]}.gcode"
         gcode_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -154,7 +222,8 @@ def api_write():
             'gcode_file': filename,
             'preview_file': os.path.basename(preview_path),
             'download_url': f'/api/download/{filename}',
-            'preview_url': f'/api/download/{os.path.basename(preview_path)}'
+            'preview_url': f'/api/download/{os.path.basename(preview_path)}',
+            'printer_model': printer_model
         })
 
     except Exception as e:
@@ -388,24 +457,296 @@ def api_task_status(task_id):
     return jsonify(status)
 
 
+@app.route('/api/printer/models', methods=['GET'])
+def api_printer_models():
+    """获取支持的打印机型号列表"""
+    try:
+        models = PrinterConfig.PRINTER_MODELS
+        return jsonify({
+            'success': True,
+            'models': [
+                {
+                    'id': key,
+                    'name': value['name'],
+                    'volume': value['volume']
+                }
+                for key, value in models.items()
+            ]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/printer/info/<model>', methods=['GET'])
+def api_printer_info(model):
+    """获取指定打印机型号的详细信息"""
+    try:
+        config = PrinterConfig.get_model_config(model)
+        return jsonify({
+            'success': True,
+            'model': model.upper(),
+            'info': config
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/bambu/send', methods=['POST'])
+def api_bambu_send():
+    """通过 Bambu Connect 发送打印任务"""
+    try:
+        data = request.json
+        gcode_file = data.get('gcode_file')
+        model_name = data.get('model_name', 'Writing Job')
+        printer_model = data.get('printer_model', 'A1MINI')
+
+        if not gcode_file:
+            return jsonify({'success': False, 'error': '未指定 Gcode 文件'})
+
+        # 构建完整的文件路径
+        gcode_path = os.path.join(app.config['UPLOAD_FOLDER'], gcode_file)
+
+        if not os.path.exists(gcode_path):
+            return jsonify({'success': False, 'error': 'Gcode 文件不存在'})
+
+        # 创建适配器并发送
+        adapter = BambuPrinterAdapter(printer_model=printer_model)
+        success = adapter.prepare_and_send(
+            gcode_path=gcode_path,
+            model_name=model_name
+        )
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': '已发送到 Bambu Connect'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': '发送失败，请检查 Bambu Connect 是否已安装'
+            })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/bambu/check', methods=['GET'])
+def api_bambu_check():
+    """检查 Bambu Connect 是否可用"""
+    try:
+        launcher = BambuPrinterAdapter().launcher
+        available = launcher.is_available()
+
+        return jsonify({
+            'success': True,
+            'available': available,
+            'message': 'Bambu Connect 已安装' if available else 'Bambu Connect 未安装'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ==================== Bambu 摄像头 API ====================
+
+@app.route('/api/bambu/camera/available', methods=['GET'])
+def api_bambu_camera_available():
+    """检查打印机摄像头功能是否可用"""
+    return jsonify({
+        'success': True,
+        'available': BAMBU_CAMERA_AVAILABLE,
+        'message': '摄像头功能可用' if BAMBU_CAMERA_AVAILABLE else 'bambu-lab-cloud-api 未安装'
+    })
+
+
+@app.route('/api/bambu/camera/configs', methods=['GET'])
+def api_bambu_camera_configs():
+    """获取所有摄像头配置"""
+    try:
+        manager = get_camera_manager()
+        configs = manager.list_configs()
+
+        return jsonify({
+            'success': True,
+            'configs': configs
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/bambu/camera/add-config', methods=['POST'])
+def api_bambu_camera_add_config():
+    """添加摄像头配置"""
+    try:
+        data = request.json
+        name = data.get('name', '')
+        printer_ip = data.get('printer_ip', '')
+        access_code = data.get('access_code', '')
+        printer_model = data.get('printer_model', 'A1MINI')
+
+        if not name or not printer_ip or not access_code:
+            return jsonify({'success': False, 'error': '配置名称、IP地址和访问码不能为空'})
+
+        manager = get_camera_manager()
+        success, message = manager.add_config(
+            name=name,
+            printer_ip=printer_ip,
+            access_code=access_code,
+            printer_model=printer_model
+        )
+
+        if success:
+            return jsonify({'success': True, 'message': message})
+        else:
+            return jsonify({'success': False, 'error': message})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/bambu/camera/remove-config', methods=['POST'])
+def api_bambu_camera_remove_config():
+    """移除摄像头配置"""
+    try:
+        data = request.json
+        name = data.get('name', '')
+
+        if not name:
+            return jsonify({'success': False, 'error': '配置名称不能为空'})
+
+        manager = get_camera_manager()
+        success, message = manager.remove_config(name)
+
+        if success:
+            return jsonify({'success': True, 'message': message})
+        else:
+            return jsonify({'success': False, 'error': message})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/bambu/camera/capture', methods=['POST'])
+def api_bambu_camera_capture():
+    """使用打印机摄像头拍照"""
+    if not BAMBU_CAMERA_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'bambu-lab-cloud-api 未安装，无法使用摄像头功能'
+        })
+
+    try:
+        data = request.json
+        config_name = data.get('config_name', '')
+
+        if not config_name:
+            return jsonify({'success': False, 'error': '请指定配置名称'})
+
+        manager = get_camera_manager()
+        camera = manager.get_camera(config_name)
+
+        if not camera:
+            return jsonify({'success': False, 'error': f'配置 "{config_name}" 不存在'})
+
+        if not camera.available:
+            return jsonify({'success': False, 'error': '摄像头模块不可用'})
+
+        # 捕获图像
+        success, frame_data, message = camera.capture_frame()
+
+        if not success:
+            return jsonify({'success': False, 'error': message})
+
+        # 保存到上传目录
+        filename = f"bambu_camera_{uuid.uuid4().hex[:8]}.jpg"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+        with open(filepath, 'wb') as f:
+            f.write(frame_data)
+
+        return jsonify({
+            'success': True,
+            'filename': filename,
+            'preview_url': f'/api/preview/{filename}',
+            'message': '拍照成功'
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/bambu/camera/test-connection', methods=['POST'])
+def api_bambu_camera_test_connection():
+    """测试摄像头连接"""
+    if not BAMBU_CAMERA_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'bambu-lab-cloud-api 未安装'
+        })
+
+    try:
+        data = request.json
+        printer_ip = data.get('printer_ip', '')
+        access_code = data.get('access_code', '')
+        printer_model = data.get('printer_model', 'A1MINI')
+
+        if not printer_ip or not access_code:
+            return jsonify({'success': False, 'error': 'IP地址和访问码不能为空'})
+
+        # 创建临时配置
+        config = BambuCameraConfig(
+            printer_ip=printer_ip,
+            access_code=access_code,
+            printer_model=printer_model
+        )
+
+        # 验证配置
+        valid, error = config.validate()
+        if not valid:
+            return jsonify({'success': False, 'error': error})
+
+        # 创建摄像头并测试连接
+        camera = BambuCamera(config)
+        success, message = camera.connect()
+
+        if success:
+            # 尝试捕获一帧
+            success, frame_data, msg = camera.capture_frame()
+            if success:
+                return jsonify({
+                    'success': True,
+                    'message': '连接成功，摄像头工作正常'
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'连接成功但无法捕获图像: {msg}'
+                })
+        else:
+            return jsonify({'success': False, 'error': message})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 def run_server(host='127.0.0.1', port=5000, debug=True):
     """运行服务器"""
     # 构建功能状态信息
     features = []
-    features.append("✓ 生成ArUco标记")
-    features.append("✓ 校准写字机")
-    features.append("✓ 书写文字")
-    features.append("✓ 导入单词")
+    features.append("[OK] 生成ArUco标记")
+    features.append("[OK] 校准写字机")
+    features.append("[OK] 书写文字")
+    features.append("[OK] 导入单词")
 
     if AUTO_LOOKUP_AVAILABLE:
-        features.append("✓ 自动查单词")
+        features.append("[OK] 自动查单词")
     else:
-        features.append("✗ 自动查单词（依赖未安装）")
+        features.append("[X] 自动查单词（依赖未安装）")
 
     if AUTO_COPY_AVAILABLE:
-        features.append("✓ 自动抄写")
+        features.append("[OK] 自动抄写")
     else:
-        features.append("✗ 自动抄写（依赖未安装）")
+        features.append("[X] 自动抄写（依赖未安装）")
 
     feature_list = '\n'.join([f'  • {f}' for f in features])
 

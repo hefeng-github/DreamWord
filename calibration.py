@@ -292,9 +292,9 @@ class Calibrator:
         self.dist_coeffs = None
         self.transformation_matrix = None
 
-        # 物理工作区域（毫米）
-        self.work_area_width = 217.0  # x方向
-        self.work_area_height = 299.0  # y方向
+        # 物理工作区域（毫米）- 默认使用 A1 mini 的尺寸
+        self.work_area_width = 256.0  # x方向
+        self.work_area_height = 256.0  # y方向
 
     def detect_markers(self, image: np.ndarray) -> Tuple[List[np.ndarray], List[int]]:
         """
@@ -503,6 +503,209 @@ class Calibrator:
             self.save_calibration(save_path)
 
         return self.transformation_matrix is not None
+
+    def generate_markers_gcode(
+        self,
+        marker_positions: dict,
+        marker_size_mm: float = 30.0,
+        gcode_path: Optional[str] = None,
+        preview_path: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        生成绘制ArUco标记的Gcode
+
+        Args:
+            marker_positions: 标记物理位置 {marker_id: (x_mm, y_mm)}
+            marker_size_mm: 标记物理尺寸（毫米）
+            gcode_path: Gcode保存路径（可选）
+            preview_path: 预览图保存路径（可选）
+
+        Returns:
+            Gcode字符串，如果失败返回None
+        """
+        try:
+            # 生成ArUco标记图像
+            generator = ArUcoMarkerGenerator(marker_size=int(marker_size_mm * 10))  # 像素大小 = 物理尺寸 * 10
+
+            # 创建预览画布（物理坐标系）
+            work_width = int(self.work_area_width)
+            work_height = int(self.work_area_height)
+            preview_image = np.ones((work_height, work_width), dtype=np.uint8) * 255
+
+            # 生成Gcode
+            gcode_lines = []
+            gcode_lines.append("; Auto-generated ArUco markers for calibration")
+            gcode_lines.append("G21 ; Set units to millimeters")
+            gcode_lines.append("G90 ; Use absolute coordinates")
+            gcode_lines.append("G1 Z5.0 F3000 ; Lift pen")
+            gcode_lines.append("")
+
+            for marker_id, (x_mm, y_mm) in marker_positions.items():
+                print(f"正在生成标记 {marker_id} 的绘制指令...")
+
+                # 生成单个标记
+                marker_img = generator.generate_marker(int(marker_id))
+
+                # 将标记转换为笔画路径
+                strokes = self._marker_to_strokes(marker_img, x_mm, y_mm, marker_size_mm)
+
+                # 在预览图上绘制标记
+                if preview_path:
+                    self._draw_marker_on_preview(preview_image, marker_img, x_mm, y_mm, marker_size_mm)
+
+                # 添加绘制指令
+                for stroke in strokes:
+                    if len(stroke) < 2:
+                        continue
+
+                    # 移动到起点
+                    gcode_lines.append(f"G0 X{stroke[0][0]:.3f} Y{stroke[0][1]:.3f}")
+                    # 下笔
+                    gcode_lines.append("G1 Z0.0 F3000")
+
+                    # 绘制路径
+                    for point in stroke[1:]:
+                        gcode_lines.append(f"G1 X{point[0]:.3f} Y{point[1]:.3f} F3000")
+
+                    # 抬笔
+                    gcode_lines.append("G1 Z5.0 F3000")
+
+                gcode_lines.append("")
+
+            # 添加尾部
+            gcode_lines.append("G1 Z5.0 ; Lift pen")
+            gcode_lines.append("G0 X0 Y0 ; Return to origin")
+            gcode_lines.append("M2 ; End of program")
+
+            gcode = '\n'.join(gcode_lines)
+
+            # 保存Gcode
+            if gcode_path:
+                with open(gcode_path, 'w', encoding='utf-8') as f:
+                    f.write(gcode)
+                print(f"✓ Gcode已保存到: {gcode_path}")
+
+            # 保存预览图
+            if preview_path:
+                cv2.imwrite(preview_path, preview_image)
+                print(f"✓ 预览图已保存到: {preview_path}")
+
+            return gcode
+
+        except Exception as e:
+            print(f"生成标记Gcode失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _marker_to_strokes(
+        self,
+        marker_img: np.ndarray,
+        x_mm: float,
+        y_mm: float,
+        marker_size_mm: float
+    ) -> List[List[Tuple[float, float]]]:
+        """
+        将ArUco标记图像转换为笔画路径
+
+        Args:
+            marker_img: 标记图像（二值图）
+            x_mm: 标记中心X坐标（毫米）
+            y_mm: 标记中心Y坐标（毫米）
+            marker_size_mm: 标记物理尺寸（毫米）
+
+        Returns:
+            笔画列表，每个笔画是一系列点
+        """
+        strokes = []
+
+        # 确保是二值图
+        if len(marker_img.shape) == 3:
+            gray = cv2.cvtColor(marker_img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = marker_img.copy()
+
+        # 二值化（0=黑色，255=白色）
+        _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+
+        # 标记大小（像素）
+        marker_size_px = marker_img.shape[0]
+
+        # 计算每个像素的物理尺寸
+        px_to_mm = marker_size_mm / marker_size_px
+
+        # 计算左上角坐标（标记的中心坐标减去一半尺寸）
+        x_start = x_mm - marker_size_mm / 2
+        y_start = y_mm - marker_size_mm / 2
+
+        # 简单扫描：使用轮廓检测提取黑色区域的边界
+        contours, _ = cv2.findContours(255 - binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+        for contour in contours:
+            # 过滤太小的轮廓
+            if cv2.contourArea(contour) < 10:
+                continue
+
+            # 将轮廓坐标转换为物理坐标
+            stroke = []
+            for point in contour:
+                px_x, px_y = point[0]
+
+                # 转换为物理坐标（Y轴翻转）
+                phys_x = x_start + px_x * px_to_mm
+                phys_y = y_start + (marker_size_px - px_y) * px_to_mm
+
+                stroke.append((phys_x, phys_y))
+
+            if len(stroke) > 1:
+                strokes.append(stroke)
+
+        return strokes
+
+    def _draw_marker_on_preview(
+        self,
+        preview_image: np.ndarray,
+        marker_img: np.ndarray,
+        x_mm: float,
+        y_mm: float,
+        marker_size_mm: float
+    ):
+        """
+        在预览图上绘制标记
+
+        Args:
+            preview_image: 预览图像
+            marker_img: 标记图像
+            x_mm: 标记中心X坐标
+            y_mm: 标记中心Y坐标
+            marker_size_mm: 标记物理尺寸
+        """
+        # 计算左上角坐标
+        x_start = int(x_mm - marker_size_mm / 2)
+        y_start = int(y_mm - marker_size_mm / 2)
+        marker_size_px = int(marker_size_mm)
+
+        # 确保坐标在有效范围内
+        if x_start < 0 or y_start < 0 or \
+           x_start + marker_size_px > preview_image.shape[1] or \
+           y_start + marker_size_px > preview_image.shape[0]:
+            print(f"警告: 标记位置超出预览图范围 ({x_mm}, {y_mm})")
+            return
+
+        # 调整标记大小
+        if marker_img.shape[0] != marker_size_px:
+            marker_img = cv2.resize(marker_img, (marker_size_px, marker_size_px))
+
+        # 确保是二值图
+        if len(marker_img.shape) == 3:
+            gray = cv2.cvtColor(marker_img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = marker_img.copy()
+
+        # 放置标记（翻转Y轴）
+        y_end = y_start + marker_size_px
+        preview_image[y_start:y_end, x_start:x_start + marker_size_px] = \
+            cv2.flip(gray, 0)
 
 
 def main():

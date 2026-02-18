@@ -61,9 +61,14 @@
                         <label for="lookup-image">上传试卷图片：</label>
                         <input type="file" id="lookup-image" accept="image/*" onchange="previewImage(this, 'lookup-preview')">
                         <div class="camera-section">
-                            <button type="button" class="camera-button" onclick="startCamera('lookup')">
-                                📷 使用摄像头拍照
-                            </button>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button type="button" class="camera-button" onclick="startCamera('lookup')">
+                                    📱 使用本机摄像头
+                                </button>
+                                <button type="button" class="camera-button bambu-camera-btn" onclick="showBambuCameraDialog('lookup-image')">
+                                    🖨️ 使用打印机摄像头
+                                </button>
+                            </div>
                             <div class="camera-video-container" id="lookup-camera-container" style="display: none;">
                                 <video id="lookup-video" class="camera-video" autoplay playsinline></video>
                                 <canvas id="lookup-canvas" class="camera-canvas"></canvas>
@@ -105,9 +110,14 @@
                         <label for="copy-image">上传横线本图片：</label>
                         <input type="file" id="copy-image" accept="image/*" onchange="previewImage(this, 'copy-preview')">
                         <div class="camera-section">
-                            <button type="button" class="camera-button" onclick="startCamera('copy')">
-                                📷 使用摄像头拍照
-                            </button>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button type="button" class="camera-button" onclick="startCamera('copy')">
+                                    📱 使用本机摄像头
+                                </button>
+                                <button type="button" class="camera-button bambu-camera-btn" onclick="showBambuCameraDialog('copy-image')">
+                                    🖨️ 使用打印机摄像头
+                                </button>
+                            </div>
                             <div class="camera-video-container" id="copy-camera-container" style="display: none;">
                                 <video id="copy-video" class="camera-video" autoplay playsinline></video>
                                 <canvas id="copy-canvas" class="camera-canvas"></canvas>
@@ -148,19 +158,99 @@
                     <div class="alert alert-info">
                         <strong>校准步骤：</strong>
                         <ol>
-                            <li>首先在"生成标记"页面生成并打印ArUco标记板</li>
-                            <li>将标记板固定在写字机工作区</li>
-                            <li>上传包含标记的照片</li>
+                            <li><strong>方法一（推荐）：</strong>点击"让写字机自动绘制标记"按钮，写字机会自动在工作区绘制ArUco标记</li>
+                            <li><strong>方法二：</strong>在"生成标记"页面生成并打印ArUco标记板，然后固定在写字机工作区</li>
+                            <li>上传包含标记的照片或使用摄像头拍照</li>
                             <li>输入每个标记的物理位置（毫米）</li>
+                            <li>点击"开始校准"完成校准</li>
                         </ol>
                     </div>
+
+                    <!-- 标记位置设置模式 -->
+                    <div class="form-group">
+                        <h3>第一步：设置标记位置</h3>
+                        <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
+                            选择一种方式来设置4个ArUco标记的位置
+                        </p>
+
+                        <!-- 模式选择 -->
+                        <div class="mode-selection" style="margin-bottom: 20px;">
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
+                                <button class="mode-btn active" id="mode-manual-btn" onclick="setMarkerPositionMode('manual')">
+                                    ✏️ 手动输入
+                                </button>
+                                <button class="mode-btn" id="mode-auto-btn" onclick="setMarkerPositionMode('auto')">
+                                    🤖 自动生成
+                                </button>
+                                <button class="mode-btn" id="mode-load-btn" onclick="setMarkerPositionMode('load')">
+                                    📂 导入上次
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 手动输入模式 -->
+                        <div id="marker-position-manual" class="marker-position-mode">
+                            <p style="color: #666; font-size: 0.9em; margin-bottom: 10px;">
+                                手动输入每个标记的物理坐标（毫米）
+                            </p>
+                        </div>
+
+                        <!-- 自动生成模式 -->
+                        <div id="marker-position-auto" class="marker-position-mode" style="display: none;">
+                            <div class="alert alert-info" style="margin-bottom: 15px;">
+                                <strong>自动生成模式：</strong><br>
+                                根据工作区尺寸自动生成推荐的标记位置（四个角落）
+                            </div>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
+                                <button class="btn btn-primary" onclick="autoGeneratePositions()">
+                                    🎯 生成推荐位置
+                                </button>
+                                <button class="btn btn-secondary" onclick="saveCurrentPositions()">
+                                    💾 保存当前位置
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 导入上次模式 -->
+                        <div id="marker-position-load" class="marker-position-mode" style="display: none;">
+                            <div class="alert alert-info" style="margin-bottom: 15px;">
+                                <strong>导入上次模式：</strong><br>
+                                加载上一次保存的标记位置配置
+                            </div>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button class="btn btn-primary" onclick="loadLastPositions()">
+                                    📂 导入上次位置
+                                </button>
+                                <button class="btn btn-danger" onclick="clearSavedPositions()">
+                                    🗑️ 清除保存的位置
+                                </button>
+                            </div>
+                            <div id="last-position-info" style="margin-top: 10px; color: #666; font-size: 0.9em;"></div>
+                        </div>
+                    </div>
+
+                    <!-- 标记位置输入 -->
+                    <div class="form-group">
+                        <h3>第二步：确认标记位置</h3>
+                        <div class="form-group">
+                            <label for="marker-size">ArUco标记尺寸（毫米）：</label>
+                            <input type="number" id="marker-size" value="30" min="10" max="100">
+                        </div>
+                        <div class="form-group">
+                            <label>标记位置（毫米）：</label>
+                            <div id="marker-positions">
                     <div class="form-group">
                         <label for="calib-image">上传校准照片：</label>
                         <input type="file" id="calib-image" accept="image/*" onchange="previewImage(this, 'calib-preview')">
                         <div class="camera-section">
-                            <button type="button" class="camera-button" onclick="startCamera('calib')">
-                                📷 使用摄像头拍照
-                            </button>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button type="button" class="camera-button" onclick="startCamera('calib')">
+                                    📱 使用本机摄像头
+                                </button>
+                                <button type="button" class="camera-button bambu-camera-btn" onclick="showBambuCameraDialog('calib-image')">
+                                    🖨️ 使用打印机摄像头
+                                </button>
+                            </div>
                             <div class="camera-video-container" id="calib-camera-container" style="display: none;">
                                 <video id="calib-video" class="camera-video" autoplay playsinline></video>
                                 <canvas id="calib-canvas" class="camera-canvas"></canvas>
@@ -207,6 +297,27 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- 绘制标记按钮 -->
+                    <div class="form-group">
+                        <h3>第三步：让写字机绘制标记</h3>
+                        <button class="btn btn-primary" onclick="drawMarkers()">🤖 让写字机自动绘制标记</button>
+                    </div>
+
+                    <div id="draw-markers-result" class="result" style="display: none;">
+                        <h3>绘制结果</h3>
+                        <div class="preview-section">
+                            <img id="draw-markers-preview" alt="标记布局预览">
+                        </div>
+                        <a id="draw-markers-download" class="btn btn-success" download>下载Gcode</a>
+                        <p style="margin-top: 10px; color: #666; font-size: 0.9em;">
+                            ⚠️ 下载Gcode后，请使用写字机控制软件（如FluidNC）运行此文件
+                        </p>
+                    </div>
+
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #e8e8e8;">
+
+                    <h3>校准步骤（完成标记绘制后）</h3>
                     <button class="btn btn-primary" onclick="calibrate()">开始校准</button>
 
                     <div id="calib-result" class="result" style="display: none;"></div>
@@ -336,6 +447,88 @@
 
     <!-- 通知 -->
     <div id="notification" class="notification" style="display: none;"></div>
+
+    <!-- Bambu 摄像头配置对话框 -->
+    <div id="bambu-camera-dialog" class="bambu-camera-dialog" style="display: none;">
+        <div class="bambu-camera-dialog-content">
+            <div class="bambu-camera-dialog-header">
+                <h2>🖨️ 使用打印机摄像头</h2>
+                <button class="bambu-camera-dialog-close" onclick="hideBambuCameraDialog()">✕</button>
+            </div>
+
+            <!-- 配置列表面板 -->
+            <div id="bambu-config-list-panel" class="bambu-config-panel">
+                <div class="bambu-config-header">
+                    <h3>选择打印机</h3>
+                    <button class="btn btn-small btn-primary" onclick="showAddBambuConfigForm()">
+                        ➕ 添加配置
+                    </button>
+                </div>
+                <div id="bambu-config-list" class="bambu-config-list">
+                    <!-- 配置列表动态生成 -->
+                </div>
+                <div class="bambu-camera-dialog-actions">
+                    <button class="btn btn-success" id="bambu-capture-btn" onclick="captureWithBambuCamera()" disabled>
+                        📸 拍照
+                    </button>
+                    <button class="btn btn-secondary" onclick="hideBambuCameraDialog()">
+                        取消
+                    </button>
+                </div>
+            </div>
+
+            <!-- 添加配置表单 -->
+            <div id="bambu-config-form" class="bambu-config-panel" style="display: none;">
+                <div class="bambu-config-header">
+                    <h3>添加打印机配置</h3>
+                    <button class="btn btn-small btn-secondary" onclick="hideAddBambuConfigForm()">
+                        ← 返回
+                    </button>
+                </div>
+                <div class="bambu-config-form">
+                    <div class="form-group">
+                        <label for="bambu-config-name">配置名称 *</label>
+                        <input type="text" id="bambu-config-name" placeholder="例如: 我的A1mini">
+                    </div>
+                    <div class="form-group">
+                        <label for="bambu-printer-ip">打印机IP地址 *</label>
+                        <input type="text" id="bambu-printer-ip" placeholder="例如: 192.168.1.100">
+                    </div>
+                    <div class="form-group">
+                        <label for="bambu-access-code">访问码 *</label>
+                        <input type="password" id="bambu-access-code" placeholder="在打印机设置中查看">
+                        <small style="color: #666; display: block; margin-top: 5px;">
+                            💡 在打印机设置 → 网络 → 访问码中获取
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label for="bambu-printer-model">打印机型号</label>
+                        <select id="bambu-printer-model" onchange="updateWorkAreaDisplay()">
+                            <option value="A1MINI">A1 mini (180×180×180mm)</option>
+                            <option value="A1">A1 (256×256×256mm)</option>
+                            <option value="P1P">P1P (256×256×256mm)</option>
+                            <option value="P1S">P1S (256×256×256mm)</option>
+                            <option value="X1C">X1 Carbon (256×256×256mm)</option>
+                        </select>
+                        <small id="work-area-display" style="color: #666; display: block; margin-top: 5px;">
+                            📐 工作区域: 180×180×180mm
+                        </small>
+                    </div>
+                    <div class="bambu-config-actions">
+                        <button class="btn btn-primary" onclick="addBambuCameraConfig()">
+                            💾 保存配置
+                        </button>
+                        <button class="btn btn-secondary" onclick="testBambuCameraConnection()">
+                            🧪 测试连接
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 隐藏的输入框，用于存储目标输入框ID -->
+    <input type="hidden" id="target-input-id">
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

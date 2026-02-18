@@ -11,7 +11,9 @@
       "Bash(chmod:*)",
       "mcp__web-reader__webReader",
       "Bash(del:*)",
-      "mcp__zai-mcp-server__ui_to_artifact"
+      "mcp__zai-mcp-server__ui_to_artifact",
+      "mcp__web-search-prime__webSearchPrime",
+      "mcp__zread__read_file"
     ]
   }
 }

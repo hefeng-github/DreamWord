@@ -1043,3 +1043,534 @@ window.addEventListener('beforeunload', function() {
         }
     });
 });
+
+// ==================== Bambu 打印机摄像头功能 ====================
+
+// Bambu 摄像头配置
+let bambuCameraConfigs = [];
+let selectedBambuConfig = null;
+
+// 检查 Bambu 摄像头功能是否可用
+async function checkBambuCameraAvailable() {
+    try {
+        const response = await fetch(`${API_BASE}/api/bambu/camera/available`);
+        const data = await response.json();
+        return data.available;
+    } catch (error) {
+        console.error('检查 Bambu 摄像头失败:', error);
+        return false;
+    }
+}
+
+// 加载 Bambu 摄像头配置列表
+async function loadBambuCameraConfigs() {
+    try {
+        const response = await fetch(`${API_BASE}/api/bambu/camera/configs`);
+        const data = await response.json();
+        if (data.success) {
+            bambuCameraConfigs = Object.entries(data.configs).map(([name, config]) => ({
+                name,
+                ...config
+            }));
+            return bambuCameraConfigs;
+        }
+    } catch (error) {
+        console.error('加载配置失败:', error);
+    }
+    return [];
+}
+
+// 显示 Bambu 摄像头配置对话框
+function showBambuCameraDialog(targetInputId) {
+    const dialog = document.getElementById('bambu-camera-dialog');
+    const targetInput = document.getElementById('target-input-id');
+    targetInput.value = targetInputId;
+    dialog.style.display = 'flex';
+
+    // 加载配置列表
+    loadAndDisplayBambuConfigs();
+}
+
+// 隐藏 Bambu 摄像头配置对话框
+function hideBambuCameraDialog() {
+    document.getElementById('bambu-camera-dialog').style.display = 'none';
+}
+
+// 加载并显示配置列表
+async function loadAndDisplayBambuConfigs() {
+    const configs = await loadBambuCameraConfigs();
+    const configList = document.getElementById('bambu-config-list');
+
+    if (configs.length === 0) {
+        configList.innerHTML = '<div class="bambu-no-config">暂无配置，请先添加打印机配置</div>';
+        return;
+    }
+
+    configList.innerHTML = configs.map(config => {
+        // 获取工作区域
+        const workAreas = {
+            'A1MINI': '180×180×180mm',
+            'A1': '256×256×256mm',
+            'P1P': '256×256×256mm',
+            'P1S': '256×256×256mm',
+            'X1C': '256×256×256mm'
+        };
+        const workArea = workAreas[config.model] || '未知';
+
+        return `
+        <div class="bambu-config-item" data-config-name="${config.name}">
+            <div class="bambu-config-name">${config.name}</div>
+            <div class="bambu-config-info">
+                <span>IP: ${config.ip}</span>
+                <span>型号: ${config.model}</span>
+                <span>行程: ${workArea}</span>
+            </div>
+        </div>
+        `;
+    }).join('');
+
+    // 为每个配置项添加点击事件监听器
+    setTimeout(() => {
+        document.querySelectorAll('.bambu-config-item').forEach(item => {
+            item.addEventListener('click', function() {
+                const configName = this.getAttribute('data-config-name');
+                selectBambuConfig(configName, this);
+            });
+        });
+    }, 0);
+}
+
+// 选择 Bambu 配置
+function selectBambuConfig(configName, element) {
+    selectedBambuConfig = configName;
+    document.querySelectorAll('.bambu-config-item').forEach(item => {
+        item.classList.remove('selected');
+    });
+    element.classList.add('selected');
+
+    // 启用拍照按钮
+    document.getElementById('bambu-capture-btn').disabled = false;
+}
+
+// 显示添加配置表单
+function showAddBambuConfigForm() {
+    document.getElementById('bambu-config-form').style.display = 'block';
+    document.getElementById('bambu-config-list-panel').style.display = 'none';
+}
+
+// 隐藏添加配置表单
+function hideAddBambuConfigForm() {
+    document.getElementById('bambu-config-form').style.display = 'none';
+    document.getElementById('bambu-config-list-panel').style.display = 'block';
+}
+
+// 添加 Bambu 摄像头配置
+async function addBambuCameraConfig() {
+    const name = document.getElementById('bambu-config-name').value.trim();
+    const printerIp = document.getElementById('bambu-printer-ip').value.trim();
+    const accessCode = document.getElementById('bambu-access-code').value.trim();
+    const printerModel = document.getElementById('bambu-printer-model').value;
+
+    if (!name || !printerIp || !accessCode) {
+        showNotification('请填写所有必填项', 'error');
+        return;
+    }
+
+    showLoading();
+
+    try {
+        const response = await fetch(`${API_BASE}/api/bambu/camera/add-config`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                name,
+                printer_ip: printerIp,
+                access_code: accessCode,
+                printer_model: printerModel
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showNotification('配置添加成功', 'success');
+            hideAddBambuConfigForm();
+
+            // 清空表单
+            document.getElementById('bambu-config-name').value = '';
+            document.getElementById('bambu-printer-ip').value = '';
+            document.getElementById('bambu-access-code').value = '';
+
+            // 重新加载配置列表
+            loadAndDisplayBambuConfigs();
+        } else {
+            showNotification(data.error || '添加失败', 'error');
+        }
+    } catch (error) {
+        showNotification('网络错误：' + error.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// 测试 Bambu 摄像头连接
+async function testBambuCameraConnection() {
+    const printerIp = document.getElementById('bambu-printer-ip').value.trim();
+    const accessCode = document.getElementById('bambu-access-code').value.trim();
+    const printerModel = document.getElementById('bambu-printer-model').value;
+
+    if (!printerIp || !accessCode) {
+        showNotification('请填写 IP 地址和访问码', 'error');
+        return;
+    }
+
+    showLoading();
+
+    try {
+        const response = await fetch(`${API_BASE}/api/bambu/camera/test-connection`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                printer_ip: printerIp,
+                access_code: accessCode,
+                printer_model: printerModel
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showNotification('连接测试成功！摄像头工作正常', 'success');
+        } else {
+            showNotification(data.error || '连接测试失败', 'error');
+        }
+    } catch (error) {
+        showNotification('网络错误：' + error.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// 使用 Bambu 摄像头拍照
+async function captureWithBambuCamera() {
+    if (!selectedBambuConfig) {
+        showNotification('请先选择打印机配置', 'error');
+        return;
+    }
+
+    showLoading();
+
+    try {
+        const response = await fetch(`${API_BASE}/api/bambu/camera/capture`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                config_name: selectedBambuConfig
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // 获取目标输入框
+            const targetInputId = document.getElementById('target-input-id').value;
+            const previewId = targetInputId.replace('-image', '-preview');
+
+            // 设置预览图
+            const preview = document.getElementById(previewId);
+            preview.src = data.preview_url;
+            preview.style.display = 'inline-block';
+
+            // 下载图片并设置为文件输入
+            const imgResponse = await fetch(data.preview_url);
+            const blob = await imgResponse.blob();
+            const file = new File([blob], data.filename, { type: 'image/jpeg' });
+
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(file);
+
+            const fileInput = document.getElementById(targetInputId);
+            fileInput.files = dataTransfer.files;
+
+            showNotification('拍照成功！', 'success');
+            hideBambuCameraDialog();
+        } else {
+            showNotification(data.error || '拍照失败', 'error');
+        }
+    } catch (error) {
+        showNotification('网络错误：' + error.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// 删除 Bambu 配置
+async function removeBambuConfig(configName) {
+    if (!confirm(`确定要删除配置 "${configName}" 吗？`)) {
+        return;
+    }
+
+    showLoading();
+
+    try {
+        const response = await fetch(`${API_BASE}/api/bambu/camera/remove-config`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                name: configName
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showNotification('配置已删除', 'success');
+            loadAndDisplayBambuConfigs();
+        } else {
+            showNotification(data.error || '删除失败', 'error');
+        }
+    } catch (error) {
+        showNotification('网络错误：' + error.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// 更新工作区域显示
+function updateWorkAreaDisplay() {
+    const modelSelect = document.getElementById('bambu-printer-model');
+    const workAreaDisplay = document.getElementById('work-area-display');
+
+    const workAreas = {
+        'A1MINI': '180×180×180mm',
+        'A1': '256×256×256mm',
+        'P1P': '256×256×256mm',
+        'P1S': '256×256×256mm',
+        'X1C': '256×256×256mm'
+    };
+
+    const selectedModel = modelSelect.value;
+    const workArea = workAreas[selectedModel] || '180×180×180mm';
+
+    workAreaDisplay.textContent = `📐 工作区域: ${workArea}`;
+}
+
+// 页面加载时初始化工作区域显示
+document.addEventListener('DOMContentLoaded', function() {
+    // 初始化工作区域显示
+    updateWorkAreaDisplay();
+});
+
+// ==================== 自动绘制标记功能 ====================
+
+// 标记位置设置模式
+let currentMarkerMode = 'manual';
+const STORAGE_KEY = 'calibration_marker_positions';
+
+// 页面加载时检查是否有保存的位置
+document.addEventListener('DOMContentLoaded', function() {
+    updateLastPositionInfo();
+});
+
+// 设置标记位置模式
+function setMarkerPositionMode(mode) {
+    currentMarkerMode = mode;
+
+    // 更新按钮状态
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.getElementById(`mode-${mode}-btn`).classList.add('active');
+
+    // 显示对应的面板
+    document.querySelectorAll('.marker-position-mode').forEach(panel => {
+        panel.style.display = 'none';
+    });
+    document.getElementById(`marker-position-${mode}`).style.display = 'block';
+}
+
+// 自动生成推荐位置
+function autoGeneratePositions() {
+    // 工作区尺寸（毫米）
+    const workAreaWidth = 217;
+    const workAreaHeight = 299;
+    const margin = 10; // 边距
+
+    // 生成四个角落的位置
+    const positions = [
+        { x: margin, y: margin },                        // 左上角
+        { x: workAreaWidth - margin, y: margin },        // 右上角
+        { x: workAreaWidth - margin, y: workAreaHeight - margin },  // 右下角
+        { x: margin, y: workAreaHeight - margin }        // 左下角
+    ];
+
+    // 更新输入框
+    const positionInputs = document.querySelectorAll('.marker-position-input');
+    positions.forEach((pos, index) => {
+        if (positionInputs[index]) {
+            positionInputs[index].querySelector('.marker-x').value = pos.x;
+            positionInputs[index].querySelector('.marker-y').value = pos.y;
+        }
+    });
+
+    showNotification('已自动生成推荐位置（四个角落）', 'success');
+}
+
+// 保存当前位置
+function saveCurrentPositions() {
+    const positionInputs = document.querySelectorAll('.marker-position-input');
+    const positions = [];
+
+    positionInputs.forEach((input, index) => {
+        const x = input.querySelector('.marker-x').value;
+        const y = input.querySelector('.marker-y').value;
+        positions.push({
+            id: index,
+            x: parseFloat(x),
+            y: parseFloat(y)
+        });
+    });
+
+    // 保存到localStorage
+    const data = {
+        positions: positions,
+        timestamp: new Date().toISOString(),
+        markerSize: parseFloat(document.getElementById('marker-size').value)
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    showNotification('当前位置配置已保存', 'success');
+    updateLastPositionInfo();
+}
+
+// 加载上次位置
+function loadLastPositions() {
+    const savedData = localStorage.getItem(STORAGE_KEY);
+
+    if (!savedData) {
+        showNotification('未找到保存的位置配置', 'error');
+        return;
+    }
+
+    try {
+        const data = JSON.parse(savedData);
+
+        // 恢复位置
+        const positionInputs = document.querySelectorAll('.marker-position-input');
+        data.positions.forEach((pos, index) => {
+            if (positionInputs[index]) {
+                positionInputs[index].querySelector('.marker-x').value = pos.x;
+                positionInputs[index].querySelector('.marker-y').value = pos.y;
+            }
+        });
+
+        // 恢复标记尺寸
+        if (data.markerSize) {
+            document.getElementById('marker-size').value = data.markerSize;
+        }
+
+        const saveTime = new Date(data.timestamp).toLocaleString('zh-CN');
+        showNotification(`已加载 ${saveTime} 保存的位置配置`, 'success');
+
+    } catch (error) {
+        showNotification('加载位置配置失败', 'error');
+        console.error(error);
+    }
+}
+
+// 清除保存的位置
+function clearSavedPositions() {
+    if (confirm('确定要清除保存的位置配置吗？')) {
+        localStorage.removeItem(STORAGE_KEY);
+        showNotification('已清除保存的位置配置', 'success');
+        updateLastPositionInfo();
+    }
+}
+
+// 更新上次位置的信息显示
+function updateLastPositionInfo() {
+    const infoDiv = document.getElementById('last-position-info');
+    const savedData = localStorage.getItem(STORAGE_KEY);
+
+    if (savedData) {
+        try {
+            const data = JSON.parse(savedData);
+            const saveTime = new Date(data.timestamp).toLocaleString('zh-CN');
+            infoDiv.innerHTML = `✅ 已保存: ${saveTime} (${data.positions.length} 个标记)`;
+        } catch (error) {
+            infoDiv.innerHTML = '';
+        }
+    } else {
+        infoDiv.innerHTML = 'ℹ️ 暂无保存的位置配置';
+    }
+}
+
+// 绘制ArUco标记
+async function drawMarkers() {
+    const markerSize = document.getElementById('marker-size').value;
+
+    // 收集标记位置
+    const positionInputs = document.querySelectorAll('.marker-position-input');
+    const positions = {};
+
+    positionInputs.forEach((input, index) => {
+        const x = input.querySelector('.marker-x').value;
+        const y = input.querySelector('.marker-y').value;
+        positions[index] = { x: parseFloat(x), y: parseFloat(y) };
+    });
+
+    // 验证位置
+    if (Object.keys(positions).length < 3) {
+        showNotification('至少需要3个标记位置', 'error');
+        return;
+    }
+
+    showLoading();
+
+    try {
+        const response = await fetch(`${API_BASE}/api/draw-markers`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                positions: positions,
+                marker_size: parseFloat(markerSize)
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // 显示预览
+            const preview = document.getElementById('draw-markers-preview');
+            preview.src = data.preview_url;
+            preview.style.display = 'inline-block';
+
+            // 设置下载链接
+            const downloadBtn = document.getElementById('draw-markers-download');
+            downloadBtn.href = data.gcode_url;
+            downloadBtn.download = data.gcode_file;
+
+            // 显示结果
+            document.getElementById('draw-markers-result').style.display = 'block';
+
+            showNotification('标记绘制Gcode生成成功！', 'success');
+        } else {
+            showNotification(data.error || '生成失败', 'error');
+        }
+    } catch (error) {
+        showNotification('网络错误：' + error.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}

@@ -745,3 +745,303 @@ body {
 .camera-stop-btn:hover {
     background: #ff7875;
 }
+
+/* 标记位置模式选择 */
+.mode-btn {
+    flex: 1;
+    min-width: 120px;
+    padding: 12px 20px;
+    background: white;
+    color: #495057;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1em;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.mode-btn:hover {
+    background: #f8f9fa;
+    border-color: #1890ff;
+}
+
+.mode-btn.active {
+    background: #1890ff;
+    color: white;
+    border-color: #1890ff;
+}
+
+.marker-position-mode {
+    animation: fadeIn 0.3s ease;
+}
+
+.mode-btn-group {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+/* ==================== Bambu 打印机摄像头样式 ==================== */
+
+/* Bambu 摄像头按钮 */
+.bambu-camera-btn {
+    background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%);
+    color: white;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 0.95em;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 500;
+}
+
+.bambu-camera-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
+}
+
+/* 对话框遮罩 */
+.bambu-camera-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(4px);
+}
+
+/* 对话框内容 */
+.bambu-camera-dialog-content {
+    background: white;
+    border-radius: 16px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 85vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: bambuDialogSlideIn 0.3s ease;
+}
+
+@keyframes bambuDialogSlideIn {
+    from {
+        opacity: 0;
+        transform: scale(0.9) translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+/* 对话框头部 */
+.bambu-camera-dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e8e8e8;
+    background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%);
+    color: white;
+}
+
+.bambu-camera-dialog-header h2 {
+    font-size: 1.3em;
+    font-weight: 600;
+    margin: 0;
+}
+
+.bambu-camera-dialog-close {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: 1.5em;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.bambu-camera-dialog-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: rotate(90deg);
+}
+
+/* 配置面板 */
+.bambu-config-panel {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.bambu-config-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.bambu-config-header h3 {
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin: 0;
+}
+
+/* 配置列表 */
+.bambu-config-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+    min-height: 200px;
+}
+
+.bambu-config-item {
+    padding: 16px;
+    border: 2px solid #e8e8e8;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: #fafafa;
+}
+
+.bambu-config-item:hover {
+    border-color: #FF6B35;
+    background: white;
+    transform: translateX(4px);
+    box-shadow: 0 2px 8px rgba(255, 107, 53, 0.15);
+}
+
+.bambu-config-item.selected {
+    border-color: #FF6B35;
+    background: linear-gradient(135deg, rgba(255, 107, 53, 0.1) 0%, rgba(247, 147, 30, 0.1) 100%);
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.2);
+}
+
+.bambu-config-name {
+    font-weight: 600;
+    font-size: 1.05em;
+    color: #1a1a1a;
+    margin-bottom: 8px;
+}
+
+.bambu-config-info {
+    display: flex;
+    gap: 16px;
+    font-size: 0.9em;
+    color: #666;
+    flex-wrap: wrap;
+}
+
+.bambu-config-info span {
+    background: white;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid #e8e8e8;
+}
+
+.bambu-no-config {
+    text-align: center;
+    padding: 60px 20px;
+    color: #999;
+    font-size: 1.05em;
+}
+
+/* 配置表单 */
+.bambu-config-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.bambu-config-form .form-group {
+    margin-bottom: 0;
+}
+
+.bambu-config-form label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #333;
+}
+
+.bambu-config-form input,
+.bambu-config-form select {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e8e8e8;
+    border-radius: 8px;
+    font-size: 1em;
+    transition: all 0.2s ease;
+}
+
+.bambu-config-form input:focus,
+.bambu-config-form select:focus {
+    outline: none;
+    border-color: #FF6B35;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
+}
+
+.bambu-config-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+/* 对话框操作按钮 */
+.bambu-camera-dialog-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    padding-top: 16px;
+    border-top: 1px solid #e8e8e8;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .bambu-camera-dialog-content {
+        width: 95%;
+        max-height: 90vh;
+    }
+
+    .bambu-config-panel {
+        padding: 20px;
+    }
+
+    .bambu-config-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .bambu-config-info {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .bambu-config-actions {
+        flex-direction: column;
+    }
+
+    .bambu-camera-dialog-actions {
+        flex-direction: column;
+    }
+
+    .bambu-camera-dialog-actions .btn {
+        width: 100%;
+    }
+}
+
