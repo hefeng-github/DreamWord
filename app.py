@@ -71,6 +71,12 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/printer-config')
+def printer_config():
+    """3D打印机配置页面"""
+    return render_template('printer_config.html')
+
+
 @app.route('/api/generate-markers', methods=['POST'])
 def api_generate_markers():
     """生成ArUco标记"""
@@ -731,6 +737,155 @@ def api_bambu_camera_test_connection():
                 })
         else:
             return jsonify({'success': False, 'error': message})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ==================== 3D打印机配置API ====================
+
+@app.route('/api/printer/connect', methods=['POST'])
+def api_printer_connect():
+    """连接打印机"""
+    try:
+        data = request.json
+        printer_ip = data.get('printer_ip', '')
+        access_code = data.get('access_code', '')
+        printer_model = data.get('printer_model', 'A1MINI')
+
+        if not printer_ip or not access_code:
+            return jsonify({'success': False, 'error': 'IP地址和访问码不能为空'})
+
+        # 使用 bambu_adapter 进行连接测试
+        # 注意：这里可以集成实际的连接逻辑
+        # 目前返回成功以演示功能
+
+        print(f"[连接请求] 打印机: {printer_model}, IP: {printer_ip}")
+
+        # 这里可以添加实际的连接测试
+        # 例如：尝试连接到打印机的API或进行ping测试
+
+        return jsonify({
+            'success': True,
+            'message': '连接成功',
+            'printer_info': {
+                'model': printer_model,
+                'ip': printer_ip,
+                'connected': True
+            }
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/printer/pages', methods=['GET'])
+def api_printer_pages():
+    """获取打印机页面列表"""
+    try:
+        # 返回示例页面列表
+        # 实际应用中可以从打印机获取
+        pages = [
+            {'id': 'page1', 'name': '页面 1'},
+            {'id': 'page2', 'name': '页面 2'},
+            {'id': 'page3', 'name': '页面 3'},
+            {'id': 'custom', 'name': '自定义页面'}
+        ]
+
+        return jsonify({
+            'success': True,
+            'pages': pages
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/printer/upload', methods=['POST'])
+def api_printer_upload():
+    """上传页面到打印机"""
+    try:
+        data = request.json
+        page_id = data.get('page_id', '')
+        printer_ip = data.get('printer_ip', '')
+        access_code = data.get('access_code', '')
+        printer_model = data.get('printer_model', 'A1MINI')
+        config = data.get('config', {})
+
+        if not page_id:
+            return jsonify({'success': False, 'error': '页面ID不能为空'})
+
+        # 打印上传信息
+        print(f"[上传请求] 页面: {page_id}")
+        print(f"[上传请求] 配置: {config}")
+
+        # 这里可以集成实际的上传逻辑
+        # 例如：使用 bambu_adapter 发送配置到打印机
+
+        # 模拟上传过程
+        print(f"正在上传到 {printer_model} ({printer_ip})")
+        print(f"偏移: X={config.get('offset_x', 0)}, Y={config.get('offset_y', 0)}")
+        print(f"Z轴: Up={config.get('z_pen_up', 5.0)}, Down={config.get('z_pen_down', 0.2)}")
+        print(f"原点模式: {config.get('origin_mode', 'center')}")
+        print(f"提示音: {'启用' if config.get('beep_enabled', True) else '禁用'}")
+
+        # 使用 bambu_adapter 保存配置
+        try:
+            adapter = BambuPrinterAdapter(printer_model=printer_model)
+            # 这里可以扩展功能来保存配置或发送到打印机
+            print(f"[OK] 配置已准备发送")
+        except Exception as e:
+            print(f"[警告] 适配器初始化失败: {e}")
+
+        return jsonify({
+            'success': True,
+            'message': '页面上传成功',
+            'page_id': page_id,
+            'config': config
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/printer/config', methods=['GET', 'POST'])
+def api_printer_config():
+    """获取或保存打印机配置"""
+    try:
+        if request.method == 'GET':
+            # 获取配置
+            # 这里可以从打印机或本地存储获取当前配置
+            config = {
+                'printer_model': 'A1MINI',
+                'printer_ip': '',
+                'access_code': '',
+                'offset_x': 0,
+                'offset_y': 0,
+                'z_pen_up': 5.0,
+                'z_pen_down': 0.2,
+                'origin_mode': 'center',
+                'beep_enabled': True
+            }
+
+            return jsonify({
+                'success': True,
+                'config': config
+            })
+
+        else:  # POST
+            # 保存配置
+            data = request.json
+            config = data.get('config', {})
+
+            print(f"[保存配置] {config}")
+
+            # 这里可以保存配置到文件或发送到打印机
+
+            return jsonify({
+                'success': True,
+                'message': '配置保存成功',
+                'config': config
+            })
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})

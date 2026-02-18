@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D打印机配置工具</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/printer_config.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <header class="header">
+            <h1>🖨️ 3D打印机配置工具</h1>
+            <p class="subtitle">Bambu Lab 打印机参数配置</p>
+            <div class="back-link">
+                <a href="/" class="btn btn-secondary">← 返回主页</a>
+            </div>
+        </header>
+
+        <!-- 主内容区 - 左右分栏布局 -->
+        <main class="main-content">
+            <div class="printer-config-layout">
+
+                <!-- 左侧：设备配置区 -->
+                <section class="config-section">
+                    <div class="card">
+                        <h2>🔧 设备配置</h2>
+
+                        <!-- 设备型号选择 -->
+                        <div class="form-group">
+                            <label for="printer-model">设备型号</label>
+                            <select id="printer-model" class="form-control">
+                                <option value="A1MINI">A1 mini</option>
+                                <option value="A1">A1</option>
+                                <option value="P1P">P1P</option>
+                                <option value="P1S">P1S</option>
+                                <option value="X1C">X1 Carbon</option>
+                            </select>
+                            <small class="form-text text-muted" id="model-info">工作区域: 180×180×180mm</small>
+                        </div>
+
+                        <!-- IP地址输入 -->
+                        <div class="form-group">
+                            <label for="printer-ip">IP地址</label>
+                            <input type="text" id="printer-ip" class="form-control" placeholder="例如: 192.168.1.100">
+                        </div>
+
+                        <!-- 访问码输入 -->
+                        <div class="form-group">
+                            <label for="access-code">访问码</label>
+                            <input type="password" id="access-code" class="form-control access-code-input" placeholder="在打印机设置中查看">
+                            <small class="form-text text-muted">
+                                💡 在打印机设置 → 网络 → 访问码中获取
+                            </small>
+                        </div>
+
+                        <!-- 页面选择 -->
+                        <div class="form-group">
+                            <label for="page-select">页面选择</label>
+                            <select id="page-select" class="form-control">
+                                <option value="">-- 请先连接打印机 --</option>
+                            </select>
+                        </div>
+
+                        <!-- 连接按钮 -->
+                        <button id="connect-btn" class="btn btn-primary btn-full" onclick="connectPrinter()">
+                            🔗 连接设备
+                        </button>
+
+                        <!-- 自动搜索按钮 -->
+                        <button class="btn btn-secondary btn-full" onclick="autoSearch()">
+                            🔍 自动搜索设备
+                        </button>
+                    </div>
+
+                    <!-- 连接状态 -->
+                    <div id="connection-status" class="card status-card" style="display: none;">
+                        <div class="status-indicator" id="status-indicator"></div>
+                        <div class="status-content">
+                            <h3>连接状态</h3>
+                            <p id="status-text">未连接</p>
+                            <div id="device-info" style="display: none;">
+                                <p><strong>型号:</strong> <span id="info-model"></span></p>
+                                <p><strong>IP:</strong> <span id="info-ip"></span></p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 右侧：参数配置区 -->
+                <section class="params-section">
+                    <div class="card">
+                        <h2>⚙️ 参数配置</h2>
+
+                        <!-- 对错轴偏移设置 -->
+                        <div class="param-group">
+                            <h3>对错轴偏移</h3>
+                            <div class="offset-controls">
+                                <div class="offset-item">
+                                    <label for="offset-x">X轴偏移</label>
+                                    <div class="number-input-with-arrows">
+                                        <button class="arrow-btn down" onclick="adjustOffset('x', -0.1)">▼</button>
+                                        <input type="number" id="offset-x" class="form-control" value="0" step="0.1">
+                                        <button class="arrow-btn up" onclick="adjustOffset('x', 0.1)">▲</button>
+                                    </div>
+                                </div>
+                                <div class="offset-item">
+                                    <label for="offset-y">Y轴偏移</label>
+                                    <div class="number-input-with-arrows">
+                                        <button class="arrow-btn down" onclick="adjustOffset('y', -0.1)">▼</button>
+                                        <input type="number" id="offset-y" class="form-control" value="0" step="0.1">
+                                        <button class="arrow-btn up" onclick="adjustOffset('y', 0.1)">▲</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Z轴位置调节 -->
+                        <div class="param-group">
+                            <h3>Z轴位置</h3>
+                            <div class="z-controls">
+                                <div class="z-item">
+                                    <label for="z-pen-up">抬笔位置 (Z Up)</label>
+                                    <div class="number-input-with-arrows">
+                                        <button class="arrow-btn down" onclick="adjustZ('pen-up', -0.1)">▼</button>
+                                        <input type="number" id="z-pen-up" class="form-control" value="5.0" step="0.1">
+                                        <button class="arrow-btn up" onclick="adjustZ('pen-up', 0.1)">▲</button>
+                                    </div>
+                                </div>
+                                <div class="z-item">
+                                    <label for="z-pen-down">落笔位置 (Z Down)</label>
+                                    <div class="number-input-with-arrows">
+                                        <button class="arrow-btn down" onclick="adjustZ('pen-down', -0.1)">▼</button>
+                                        <input type="number" id="z-pen-down" class="form-control" value="0.2" step="0.1">
+                                        <button class="arrow-btn up" onclick="adjustZ('pen-down', 0.1)">▲</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 原点模式选择 -->
+                        <div class="param-group">
+                            <label for="origin-mode">原点模式</label>
+                            <select id="origin-mode" class="form-control">
+                                <option value="center">中心原点</option>
+                                <option value="bottom-left">左下角原点</option>
+                                <option value="top-left">左上角原点</option>
+                            </select>
+                        </div>
+
+                        <!-- 提示音开关 -->
+                        <div class="param-group">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="beep-enabled" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-label">启用提示音</span>
+                            </label>
+                        </div>
+
+                        <!-- 操作按钮 -->
+                        <div class="action-buttons">
+                            <button id="upload-btn" class="btn btn-primary" onclick="uploadPage()">
+                                📤 上传页面
+                            </button>
+                            <button class="btn btn-secondary" onclick="refreshParams()">
+                                🔄 刷新参数
+                            </button>
+                            <button class="btn btn-danger" onclick="deleteConfig()">
+                                🗑️ 删除配置
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 操作提示 -->
+                    <div class="card info-card">
+                        <h3>💡 操作提示</h3>
+                        <ul>
+                            <li>使用上下箭头按钮可以精确调节数值</li>
+                            <li>配置会自动保存到本地存储</li>
+                            <li>上传页面前请确保已连接设备</li>
+                            <li>删除配置将清除所有保存的参数</li>
+                        </ul>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- 页脚 -->
+        <footer class="footer">
+            <p>3D打印机配置工具 v1.0 | Bambu Lab 适配器</p>
+        </footer>
+    </div>
+
+    <!-- 加载提示 -->
+    <div id="loading" class="loading" style="display: none;">
+        <div class="spinner"></div>
+        <p id="loading-text">处理中，请稍候...</p>
+    </div>
+
+    <!-- 通知 -->
+    <div id="notification" class="notification" style="display: none;"></div>
+
+    <script src="{{ url_for('static', filename='js/printer_config.js') }}"></script>
+</body>
+</html>
