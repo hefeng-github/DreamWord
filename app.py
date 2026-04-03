@@ -14,22 +14,22 @@ import threading
 import json
 
 # 导入项目模块（基础模块，无重型依赖）
-from calibration import Calibrator, ArUcoMarkerGenerator
-from writer import WriterMachine
+from src.modules.calibration import Calibrator, ArUcoMarkerGenerator
+from src.modules.writer import WriterMachine
 
 # 延迟导入标志
 AUTO_LOOKUP_AVAILABLE = False
 AUTO_COPY_AVAILABLE = False
 
 try:
-    from auto_lookup import AutoLookup
+    from src.modules.auto_lookup import AutoLookup
     AUTO_LOOKUP_AVAILABLE = True
 except Exception as e:
     print(f"警告: 自动查词模块加载失败: {e}")
     print("自动查词功能将不可用")
 
 try:
-    from auto_copy import AutoCopy
+    from src.modules.auto_copy import AutoCopy
     AUTO_COPY_AVAILABLE = True
 except Exception as e:
     print(f"警告: 自动抄写模块加载失败: {e}")
@@ -375,7 +375,7 @@ def api_add_known_words():
             return jsonify({'success': False, 'error': '单词列表为空'})
 
         # 创建数据库实例
-        from auto_lookup import KnownWordsDatabase
+        from src.modules.auto_lookup import KnownWordsDatabase
         db = KnownWordsDatabase()
 
         # 统计
@@ -408,7 +408,7 @@ def api_add_known_words():
 def api_get_known_words():
     """获取所有已知单词"""
     try:
-        from auto_lookup import KnownWordsDatabase
+        from src.modules.auto_lookup import KnownWordsDatabase
         db = KnownWordsDatabase()
         words = db.get_all_words()
 
@@ -432,7 +432,7 @@ def api_remove_known_word():
         if not word:
             return jsonify({'success': False, 'error': '单词不能为空'})
 
-        from auto_lookup import KnownWordsDatabase
+        from src.modules.auto_lookup import KnownWordsDatabase
         db = KnownWordsDatabase()
         db.remove_word(word)
 
