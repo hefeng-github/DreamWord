@@ -12,10 +12,10 @@ import sys
 import argparse
 from pathlib import Path
 
-from calibration import Calibrator, ArUcoMarkerGenerator
-from writer import WriterMachine, MachineController
-from auto_lookup import AutoLookup
-from auto_copy import AutoCopy
+from src.modules.calibration import Calibrator, ArUcoMarkerGenerator
+from src.modules.writer import WriterMachine, MachineController
+from src.modules.auto_lookup import AutoLookup
+from src.modules.auto_copy import AutoCopy
 
 
 def print_banner():
