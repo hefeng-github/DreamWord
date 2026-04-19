@@ -678,6 +678,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 检测后端功能可用性
     checkBackendFeatures();
+
+    // 初始化标记位置设置区
+    if (document.getElementById('marker-position-manual')) {
+        setMarkerPositionMode('manual');
+        updateLastPositionInfo();
+    }
 });
 
 // 检测后端功能
@@ -1044,8 +1050,38 @@ window.addEventListener('beforeunload', function() {
     });
 });
 
+const STORAGE_KEY = 'dreamword_marker_positions_v1';
 
-    // 更新输入框
+// 切换标记位置设置模式
+function setMarkerPositionMode(mode) {
+    const modes = ['manual', 'auto', 'load'];
+
+    modes.forEach(item => {
+        const modeContainer = document.getElementById(`marker-position-${item}`);
+        const modeBtn = document.getElementById(`mode-${item}-btn`);
+
+        if (modeContainer) {
+            modeContainer.style.display = item === mode ? 'block' : 'none';
+        }
+        if (modeBtn) {
+            modeBtn.classList.toggle('active', item === mode);
+        }
+    });
+
+    if (mode === 'load') {
+        updateLastPositionInfo();
+    }
+}
+
+// 自动生成推荐的四角标记位置
+function autoGeneratePositions() {
+    const positions = [
+        { x: 10, y: 10 },
+        { x: 207, y: 10 },
+        { x: 207, y: 289 },
+        { x: 10, y: 289 }
+    ];
+
     const positionInputs = document.querySelectorAll('.marker-position-input');
     positions.forEach((pos, index) => {
         if (positionInputs[index]) {
@@ -1207,3 +1243,179 @@ async function drawMarkers() {
         hideLoading();
     }
 }
+
+// ==================== 单词预览功能 ====================
+
+// 防抖定时器
+let lookupDebounceTimer = null;
+
+// 防抖查询
+function debounceLookup() {
+    // 清除之前的定时器
+    if (lookupDebounceTimer) {
+        clearTimeout(lookupDebounceTimer);
+    }
+
+    // 获取输入的单词
+    const word = document.getElementById('preview-word-input').value.trim();
+
+    // 如果输入为空，隐藏结果
+    if (!word) {
+        hideWordPreview();
+        return;
+    }
+
+    // 设置新的定时器（500ms后执行查询）
+    lookupDebounceTimer = setTimeout(() => {
+        lookupWord();
+    }, 500);
+}
+
+// 查询单词
+async function lookupWord() {
+    const word = document.getElementById('preview-word-input').value.trim();
+
+    if (!word) {
+        hideWordPreview();
+        return;
+    }
+
+    // 显示加载提示
+    showWordPreviewLoading();
+
+    try {
+        const response = await fetch(`${API_BASE}/api/word-preview?word=${encodeURIComponent(word)}`);
+        const data = await response.json();
+
+        if (data.success) {
+            displayWordPreview(data);
+        } else {
+            showWordPreviewNoResult();
+        }
+    } catch (error) {
+        showNotification('查询失败：' + error.message, 'error');
+        showWordPreviewNoResult();
+    }
+}
+
+// 显示单词预览加载状态
+function showWordPreviewLoading() {
+    document.getElementById('word-preview-loading').style.display = 'block';
+    document.getElementById('word-preview-result').style.display = 'none';
+    document.getElementById('word-preview-no-result').style.display = 'none';
+}
+
+// 隐藏单词预览
+function hideWordPreview() {
+    document.getElementById('word-preview-loading').style.display = 'none';
+    document.getElementById('word-preview-result').style.display = 'none';
+    document.getElementById('word-preview-no-result').style.display = 'none';
+}
+
+// 显示单词预览无结果
+function showWordPreviewNoResult() {
+    document.getElementById('word-preview-loading').style.display = 'none';
+    document.getElementById('word-preview-result').style.display = 'none';
+    document.getElementById('word-preview-no-result').style.display = 'block';
+}
+
+// 显示单词预览结果
+function displayWordPreview(data) {
+    // 隐藏加载和无结果提示
+    document.getElementById('word-preview-loading').style.display = 'none';
+    document.getElementById('word-preview-no-result').style.display = 'none';
+
+    // 显示结果容器
+    const resultDiv = document.getElementById('word-preview-result');
+    resultDiv.style.display = 'block';
+
+    // 填充单词信息
+    document.getElementById('preview-word').textContent = data.word;
+    document.getElementById('preview-phonetic').textContent = data.phonetic || '';
+    document.getElementById('preview-pos').textContent = data.pos || '';
+
+    // 填充释义
+    const definitionsList = document.getElementById('preview-definitions');
+    definitionsList.innerHTML = '';
+    if (data.definitions && data.definitions.length > 0) {
+        document.getElementById('preview-definitions-section').style.display = 'block';
+        data.definitions.forEach(def => {
+            const li = document.createElement('li');
+            li.textContent = def;
+            definitionsList.appendChild(li);
+        });
+    } else {
+        document.getElementById('preview-definitions-section').style.display = 'none';
+    }
+
+    // 填充例句
+    const examplesList = document.getElementById('preview-examples');
+    examplesList.innerHTML = '';
+    if (data.examples && data.examples.length > 0) {
+        document.getElementById('preview-examples-section').style.display = 'block';
+        data.examples.forEach(example => {
+            const li = document.createElement('li');
+            li.textContent = example;
+            examplesList.appendChild(li);
+        });
+    } else {
+        document.getElementById('preview-examples-section').style.display = 'none';
+    }
+
+    // 显示词根信息
+    if (data.base_form && data.base_form !== data.word) {
+        document.getElementById('preview-base-form-section').style.display = 'block';
+        document.getElementById('preview-base-form').textContent = `原形：${data.base_form}`;
+    } else {
+        document.getElementById('preview-base-form-section').style.display = 'none';
+    }
+
+    // 显示所有词条
+    if (data.all_entries && data.all_entries.length > 0) {
+        document.getElementById('preview-all-entries-section').style.display = 'block';
+        const allEntriesDiv = document.getElementById('preview-all-entries');
+        allEntriesDiv.innerHTML = '';
+
+        data.all_entries.forEach((entry, index) => {
+            const entryDiv = document.createElement('div');
+            entryDiv.style.padding = '10px';
+            entryDiv.style.borderBottom = index < data.all_entries.length - 1 ? '1px solid #ecf0f1' : 'none';
+
+            let entryHTML = `<strong style="color: #2c3e50;">${entry.pos || '未知词性'}</strong>`;
+
+            if (entry.phonetics && entry.phonetics.length > 0) {
+                entryHTML += ` <span style="color: #7f8c8d;">${entry.phonetics[0]}</span>`;
+            }
+
+            if (entry.definitions && entry.definitions.length > 0) {
+                entryHTML += `<ul style="margin-top: 5px; padding-left: 20px;">`;
+                entry.definitions.forEach(def => {
+                    entryHTML += `<li>${def}</li>`;
+                });
+                entryHTML += `</ul>`;
+            }
+
+            entryDiv.innerHTML = entryHTML;
+            allEntriesDiv.appendChild(entryDiv);
+        });
+    } else {
+        document.getElementById('preview-all-entries-section').style.display = 'none';
+    }
+}
+
+// 键盘事件：在单词输入框按回车直接查询
+document.addEventListener('DOMContentLoaded', function() {
+    const wordInput = document.getElementById('preview-word-input');
+    if (wordInput) {
+        wordInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                // 清除防抖定时器
+                if (lookupDebounceTimer) {
+                    clearTimeout(lookupDebounceTimer);
+                }
+                // 立即查询
+                lookupWord();
+            }
+        });
+    }
+});

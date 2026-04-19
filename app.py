@@ -7,15 +7,23 @@
 from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 import os
-import sys
 from pathlib import Path
 import uuid
-import threading
 import json
+from typing import Any, Dict, Tuple
 
 # 导入项目模块（基础模块，无重型依赖）
 from src.modules.calibration import Calibrator, ArUcoMarkerGenerator
 from src.modules.writer import WriterMachine
+
+# 导入查词模块
+WORD_LOOKUP_AVAILABLE = False
+try:
+    from src.modules.word_lookup import WordLookup
+    WORD_LOOKUP_AVAILABLE = True
+except Exception as e:
+    print(f"警告: 查词模块加载失败: {e}")
+    print("查词预览功能将不可用")
 
 # 延迟导入标志
 AUTO_LOOKUP_AVAILABLE = False
@@ -47,6 +55,47 @@ Path(app.config['UPLOAD_FOLDER']).mkdir(exist_ok=True)
 task_status = {}
 
 
+def _json_data() -> Dict[str, Any]:
+    """统一获取JSON请求体，避免空JSON导致的NoneType异常。"""
+    return request.get_json(silent=True) or {}
+
+
+def _error(message: str, code: int = 200):
+    return jsonify({'success': False, 'error': message}), code
+
+
+def _save_uploaded_image(field_name: str = 'image'):
+    """保存上传图片并返回文件路径。"""
+    if field_name not in request.files:
+        return None, _error('未上传图片')
+
+    file = request.files[field_name]
+    if not file.filename:
+        return None, _error('未选择文件')
+
+    filename = secure_filename(file.filename)
+    if not filename:
+        filename = f'upload_{uuid.uuid4().hex[:8]}.bin'
+    else:
+        filename = f'{uuid.uuid4().hex[:8]}_{filename}'
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+    return filepath, None
+
+
+def _parse_marker_positions(positions_data: Dict[str, Any]) -> Dict[int, Tuple[float, float]]:
+    marker_positions = {}
+    for marker_id, pos in positions_data.items():
+        marker_positions[int(marker_id)] = (float(pos['x']), float(pos['y']))
+    return marker_positions
+
+
+def _get_known_words_db():
+    from src.modules.auto_lookup import KnownWordsDatabase
+    return KnownWordsDatabase()
+
+
 @app.route('/')
 def index():
     """主页"""
@@ -63,7 +112,7 @@ def printer_config():
 def api_generate_markers():
     """生成ArUco标记"""
     try:
-        data = request.json
+        data = _json_data()
         num_markers = int(data.get('num_markers', 4))
         marker_size = int(data.get('marker_size', 200))
 
@@ -89,14 +138,11 @@ def api_generate_markers():
 def api_draw_markers():
     """生成绘制ArUco标记的Gcode"""
     try:
-        data = request.json
+        data = _json_data()
 
         # 获取标记位置
-        marker_positions = {}
         positions_data = data.get('positions', {})
-
-        for marker_id, pos in positions_data.items():
-            marker_positions[int(marker_id)] = (float(pos['x']), float(pos['y']))
+        marker_positions = _parse_marker_positions(positions_data)
 
         # 获取标记尺寸
         marker_size = float(data.get('marker_size', 30.0))
@@ -137,24 +183,14 @@ def api_draw_markers():
 def api_calibrate():
     """校准写字机"""
     try:
-        if 'image' not in request.files:
-            return jsonify({'success': False, 'error': '未上传图片'})
-
-        file = request.files['image']
-        if file.filename == '':
-            return jsonify({'success': False, 'error': '未选择文件'})
-
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
+        filepath, error_response = _save_uploaded_image('image')
+        if error_response:
+            return error_response
 
         # 获取标记位置
-        marker_positions = {}
         positions_data = request.form.get('positions', '{}')
         positions = json.loads(positions_data)
-
-        for marker_id, pos in positions.items():
-            marker_positions[int(marker_id)] = (float(pos['x']), float(pos['y']))
+        marker_positions = _parse_marker_positions(positions)
 
         # 校准
         calibrator = Calibrator(marker_size=float(request.form.get('marker_size', 30.0)))
@@ -183,8 +219,8 @@ def api_calibrate():
 def api_write():
     """书写文字"""
     try:
-        data = request.json
-        text = data.get('text', '')
+        data = _json_data()
+        text = data.get('text', '').strip()
         use_handright = data.get('use_handright', False)
         printer_model = data.get('printer_model', 'A1MINI')
         layer_height = data.get('layer_height', 0.2)
@@ -192,7 +228,7 @@ def api_write():
         bed_temp = data.get('bed_temp', 60)
 
         if not text:
-            return jsonify({'success': False, 'error': '文字不能为空'})
+            return _error('文字不能为空')
 
         writer = WriterMachine(
             printer_model=printer_model,
@@ -235,15 +271,10 @@ def api_auto_lookup():
         })
 
     try:
-        if 'image' not in request.files:
-            return jsonify({'success': False, 'error': '未上传图片'})
-
-        file = request.files['image']
+        filepath, error_response = _save_uploaded_image('image')
+        if error_response:
+            return error_response
         known_words = request.form.get('known_words', '')
-
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
 
         # 处理
         auto_lookup = AutoLookup()
@@ -292,18 +323,13 @@ def api_auto_copy():
         })
 
     try:
-        if 'image' not in request.files:
-            return jsonify({'success': False, 'error': '未上传图片'})
-
-        file = request.files['image']
+        filepath, error_response = _save_uploaded_image('image')
+        if error_response:
+            return error_response
         text = request.form.get('text', '')
 
         if not text:
             return jsonify({'success': False, 'error': '文字不能为空'})
-
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
 
         # 处理
         auto_copy = AutoCopy()
@@ -342,11 +368,11 @@ def api_auto_copy():
 def api_download(filename):
     """下载文件"""
     try:
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
-        if os.path.exists(filepath):
-            return send_file(filepath, as_attachment=True)
+        filepath = Path(app.config['UPLOAD_FOLDER']) / secure_filename(filename)
+        if filepath.is_file():
+            return send_file(str(filepath), as_attachment=True)
         else:
-            return jsonify({'success': False, 'error': '文件不存在'}), 404
+            return _error('文件不存在', 404)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -355,11 +381,11 @@ def api_download(filename):
 def api_preview(filename):
     """预览图片"""
     try:
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
-        if os.path.exists(filepath):
-            return send_file(filepath)
+        filepath = Path(app.config['UPLOAD_FOLDER']) / secure_filename(filename)
+        if filepath.is_file():
+            return send_file(str(filepath))
         else:
-            return jsonify({'success': False, 'error': '文件不存在'}), 404
+            return _error('文件不存在', 404)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -368,21 +394,27 @@ def api_preview(filename):
 def api_add_known_words():
     """添加已知单词到数据库"""
     try:
-        data = request.json
+        data = _json_data()
         words = data.get('words', [])
 
-        if not words:
-            return jsonify({'success': False, 'error': '单词列表为空'})
+        if isinstance(words, str):
+            words = [words]
+        elif not isinstance(words, list):
+            return _error('words 参数必须是数组或字符串')
 
-        # 创建数据库实例
-        from src.modules.auto_lookup import KnownWordsDatabase
-        db = KnownWordsDatabase()
+        if not words:
+            return _error('单词列表为空')
+
+        db = _get_known_words_db()
 
         # 统计
         added_count = 0
         skipped_count = 0
 
         for word in words:
+            if not isinstance(word, str):
+                continue
+            word = word.strip()
             if not word:
                 continue
 
@@ -408,8 +440,7 @@ def api_add_known_words():
 def api_get_known_words():
     """获取所有已知单词"""
     try:
-        from src.modules.auto_lookup import KnownWordsDatabase
-        db = KnownWordsDatabase()
+        db = _get_known_words_db()
         words = db.get_all_words()
 
         return jsonify({
@@ -426,20 +457,44 @@ def api_get_known_words():
 def api_remove_known_word():
     """从数据库移除已知单词"""
     try:
-        data = request.json
-        word = data.get('word', '')
+        data = _json_data()
+        word = data.get('word', '').strip()
 
         if not word:
-            return jsonify({'success': False, 'error': '单词不能为空'})
+            return _error('单词不能为空')
 
-        from src.modules.auto_lookup import KnownWordsDatabase
-        db = KnownWordsDatabase()
+        db = _get_known_words_db()
         db.remove_word(word)
 
         return jsonify({
             'success': True,
             'message': f'已移除单词: {word}'
         })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/word-preview', methods=['GET'])
+def api_word_preview():
+    """查单词预览"""
+    if not WORD_LOOKUP_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': '查词模块未加载'
+        })
+
+    try:
+        word = request.args.get('word', '').strip()
+
+        if not word:
+            return jsonify({'success': False, 'error': '单词不能为空'})
+
+        # 查询单词
+        word_lookup = WordLookup()
+        result = word_lookup.lookup(word)
+
+        return jsonify(result.to_dict())
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -459,7 +514,7 @@ def api_task_status(task_id):
 def api_printer_connect():
     """连接打印机"""
     try:
-        data = request.json
+        data = _json_data()
         printer_ip = data.get('printer_ip', '')
         access_code = data.get('access_code', '')
         printer_model = data.get('printer_model', 'A1MINI')
@@ -516,8 +571,8 @@ def api_printer_pages():
 def api_printer_upload():
     """上传页面到打印机"""
     try:
-        data = request.json
-        page_id = data.get('page_id', '')
+        data = _json_data()
+        page_id = data.get('page_id') or data.get('page', '')
         printer_ip = data.get('printer_ip', '')
         access_code = data.get('access_code', '')
         printer_model = data.get('printer_model', 'A1MINI')
@@ -551,7 +606,34 @@ def api_printer_upload():
             'success': True,
             'message': '页面上传成功',
             'page_id': page_id,
+            'page': page_id,
             'config': config
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/printer/delete', methods=['POST'])
+def api_printer_delete():
+    """删除打印机页面"""
+    try:
+        data = _json_data()
+        page_id = data.get('page_id') or data.get('page', '')
+
+        if page_id == '':
+            return jsonify({
+                'success': False,
+                'error': '页面不能为空'
+            })
+
+        print(f"[删除页面] 页面: {page_id}")
+
+        return jsonify({
+            'success': True,
+            'message': f'页面 {page_id} 删除成功',
+            'page_id': page_id,
+            'page': page_id
         })
 
     except Exception as e:
@@ -575,87 +657,6 @@ def api_printer_config():
         return jsonify({
             'success': True,
             'config': config
-        })
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/printer/connect', methods=['POST'])
-def api_printer_connect():
-    """连接打印机"""
-    try:
-        data = request.json
-        printer_model = data.get('printer_model', 'A1MINI')
-        ip = data.get('ip', '')
-        access_code = data.get('access_code', '')
-
-        print(f"[连接打印机] 型号: {printer_model}, IP: {ip}")
-
-        # 验证参数
-        if not ip:
-            return jsonify({
-                'success': False,
-                'error': '请输入打印机IP地址'
-            })
-
-        # 这里可以尝试实际连接打印机
-        # 暂时模拟成功连接
-        print(f"[连接成功] {printer_model} @ {ip}")
-
-        return jsonify({
-            'success': True,
-            'message': '打印机连接成功',
-            'printer_info': {
-                'model': printer_model,
-                'ip': ip,
-                'firmware': '01.08.02.00'
-            }
-        })
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/printer/upload', methods=['POST'])
-def api_printer_upload():
-    """上传页面到打印机"""
-    try:
-        data = request.json
-        page = data.get('page', 1)
-        config = data.get('config', {})
-
-        print(f"[上传页面] 页面: {page}, 配置: {config}")
-
-        # 这里可以实际发送配置到打印机
-        # 暂时模拟上传成功
-
-        return jsonify({
-            'success': True,
-            'message': f'页面 {page} 上传成功',
-            'page': page
-        })
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/printer/delete', methods=['POST'])
-def api_printer_delete():
-    """删除打印机页面"""
-    try:
-        data = request.json
-        page = data.get('page', 1)
-
-        print(f"[删除页面] 页面: {page}")
-
-        # 这里可以实际删除打印机上的页面
-        # 暂时模拟删除成功
-
-        return jsonify({
-            'success': True,
-            'message': f'页面 {page} 删除成功',
-            'page': page
         })
 
     except Exception as e:
