@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DreamWord 调试工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .test-section h2 {
+            color: #555;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        button {
+            padding: 12px 24px;
+            margin: 5px;
+            border: none;
+            border-radius: 6px;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        button.success {
+            background: #28a745;
+        }
+
+        button.error {
+            background: #dc3545;
+        }
+
+        button.warning {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 13px;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .status-card {
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .status-card.healthy {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-card.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-card.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .input-group {
+            margin: 15px 0;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px 15px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .log-entry {
+            padding: 8px 12px;
+            margin: 5px 0;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .log-entry.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .log-entry.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .log-entry.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 DreamWord 调试工具</h1>
+
+        <!-- 系统状态检查 -->
+        <div class="test-section">
+            <h2>📊 系统状态检查</h2>
+            <button onclick="checkSystemStatus()">检查系统状态</button>
+            <div id="systemStatus" class="result"></div>
+        </div>
+
+        <!-- API测试 -->
+        <div class="test-section">
+            <h2>🔍 API连接测试</h2>
+            <div class="input-group">
+                <input type="text" id="testWord" placeholder="输入测试单词" value="hello">
+            </div>
+            <button onclick="testAllAPIs()">测试所有API</button>
+            <div id="apiTestResult" class="result"></div>
+        </div>
+
+        <!-- 网络诊断 -->
+        <div class="test-section">
+            <h2>🌐 网络诊断</h2>
+            <button onclick="diagnoseNetwork()">运行网络诊断</button>
+            <div id="networkDiag" class="result"></div>
+        </div>
+
+        <!-- 实时日志 -->
+        <div class="test-section">
+            <h2>📝 实时日志</h2>
+            <button onclick="clearLogs()">清空日志</button>
+            <div id="logs" class="result"></div>
+        </div>
+
+        <!-- 快速修复 -->
+        <div class="test-section">
+            <h2>🔧 快速修复建议</h2>
+            <div id="suggestions" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const WORKER_URL = window.location.href.replace('debug.html', '');
+        let logs = [];
+
+        // 添加日志
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            logs.unshift({ timestamp, message, type });
+            updateLogs();
+        }
+
+        function updateLogs() {
+            const logsDiv = document.getElementById('logs');
+            logsDiv.innerHTML = logs.map(log =>
+                `<div class="log-entry ${log.type}">[${log.timestamp}] ${log.message}</div>`
+            ).join('');
+        }
+
+        function clearLogs() {
+            logs = [];
+            updateLogs();
+        }
+
+        // 检查系统状态
+        async function checkSystemStatus() {
+            const statusDiv = document.getElementById('systemStatus');
+            statusDiv.innerHTML = '<div class="log-entry info">检查中...</div>';
+
+            addLog('开始系统状态检查...', 'info');
+
+            try {
+                // 检查健康状态
+                addLog('检查 /api/health 端点...', 'info');
+                const healthResponse = await fetch(WORKER_URL + 'api/health');
+                const healthData = await healthResponse.json();
+
+                // 检查调试信息
+                addLog('检查 /api/debug 端点...', 'info');
+                const debugResponse = await fetch(WORKER_URL + 'api/debug');
+                const debugData = await debugResponse.json();
+
+                let html = '<div class="status-grid">';
+
+                // Worker状态
+                html += `<div class="status-card ${healthData.status === 'healthy' ? 'healthy' : 'error'}">
+                    <div>Worker状态</div>
+                    <div class="status-value">${healthData.status === 'healthy' ? '✅ 正常' : '❌ 异常'}</div>
+                    <div>${healthData.service} v${healthData.version}</div>
+                </div>`;
+
+                // 功能状态
+                html += `<div class="status-card healthy">
+                    <div>可用功能</div>
+                    <div class="status-value">${Object.keys(healthData.features).filter(k => healthData.features[k]).length}/${Object.keys(healthData.features).length}</div>
+                    <div>${Object.keys(healthData.features).filter(k => healthData.features[k]).join(', ')}</div>
+                </div>`;
+
+                // API模式
+                html += `<div class="status-card ${debugData.config.dictionaryAPI === 'auto' ? 'healthy' : 'warning'}">
+                    <div>API模式</div>
+                    <div class="status-value">${debugData.config.dictionaryAPI}</div>
+                    <div>超时: ${debugData.config.apiTimeout}ms</div>
+                </div>`;
+
+                html += '</div>';
+
+                html += '\n\n详细信息:\n';
+                html += JSON.stringify({ health: healthData, debug: debugData }, null, 2);
+
+                statusDiv.innerHTML = html;
+                addLog('系统状态检查完成', 'success');
+
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="status-card error">
+                    <div class="status-value">❌ 错误</div>
+                    <div>${error.message}</div>
+                </div>`;
+                addLog('系统状态检查失败: ' + error.message, 'error');
+            }
+        }
+
+        // 测试所有API
+        async function testAllAPIs() {
+            const resultDiv = document.getElementById('apiTestResult');
+            const word = document.getElementById('testWord').value;
+
+            resultDiv.innerHTML = '<div class="log-entry info">测试中...</div>';
+            addLog(`开始测试单词: ${word}`, 'info');
+
+            const apis = [
+                { name: 'Free Dictionary', url: `${WORKER_URL}api/lookup?word=${word}` },
+                { name: 'Youdao', url: `${WORKER_URL}api/lookup?word=${word}` },
+                { name: 'Iciba', url: `${WORKER_URL}api/lookup?word=${word}` }
+            ];
+
+            let html = '';
+            let successCount = 0;
+
+            for (const api of apis) {
+                const startTime = performance.now();
+
+                try {
+                    addLog(`测试 ${api.name}...`, 'info');
+
+                    const response = await fetch(api.url);
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        throw new Error('非JSON响应');
+                    }
+
+                    const data = await response.json();
+                    const endTime = performance.now();
+                    const responseTime = Math.round(endTime - startTime);
+
+                    if (data.success) {
+                        successCount++;
+                        html += `<div class="status-card healthy">
+                            <div>${api.name}</div>
+                            <div class="status-value">✅ 成功</div>
+                            <div>响应时间: ${responseTime}ms</div>
+                            <div>使用API: ${data.api_used || 'default'}</div>
+                        </div>`;
+                        addLog(`${api.name} 成功 (${responseTime}ms)`, 'success');
+                    } else {
+                        html += `<div class="status-card error">
+                            <div>${api.name}</div>
+                            <div class="status-value">❌ 失败</div>
+                            <div>错误: ${data.error}</div>
+                        </div>`;
+                        addLog(`${api.name} 失败: ${data.error}`, 'error');
+                    }
+
+                } catch (error) {
+                    html += `<div class="status-card error">
+                        <div>${api.name}</div>
+                        <div class="status-value">❌ 错误</div>
+                        <div>${error.message}</div>
+                    </div>`;
+                    addLog(`${api.name} 错误: ${error.message}`, 'error');
+                }
+            }
+
+            html = `<div style="margin-bottom: 15px;">成功: ${successCount}/${apis.length}</div>` + html;
+            resultDiv.innerHTML = html;
+
+            // 更新建议
+            updateSuggestions(successCount, apis.length);
+        }
+
+        // 网络诊断
+        async function diagnoseNetwork() {
+            const diagDiv = document.getElementById('networkDiag');
+            diagDiv.innerHTML = '<div class="log-entry info">诊断中...</div>';
+
+            addLog('开始网络诊断...', 'info');
+
+            let html = '';
+            let issues = [];
+
+            // 测试基本连接
+            try {
+                addLog('测试基本网络连接...', 'info');
+                const response = await fetch(WORKER_URL + 'api/health', {
+                    method: 'HEAD',
+                    cache: 'no-cache'
+                });
+
+                if (response.ok) {
+                    html += '<div class="status-card healthy">✅ 基本连接正常</div>';
+                    addLog('基本连接正常', 'success');
+                } else {
+                    html += '<div class="status-card error">❌ 连接异常</div>';
+                    issues.push('基本连接失败');
+                    addLog('基本连接失败', 'error');
+                }
+            } catch (error) {
+                html += '<div class="status-card error">❌ 网络错误</div>';
+                issues.push('网络错误: ' + error.message);
+                addLog('网络错误: ' + error.message, 'error');
+            }
+
+            // CORS检查
+            html += '<div class="status-card warning">⚠️ 请确保在Worker域名下访问此页面</div>';
+
+            // 响应时间检查
+            const start = performance.now();
+            try {
+                await fetch(WORKER_URL + 'api/health');
+                const duration = Math.round(performance.now() - start);
+
+                if (duration < 500) {
+                    html += `<div class="status-card healthy">✅ 响应时间: ${duration}ms (良好)</div>`;
+                } else if (duration < 1500) {
+                    html += `<div class="status-card warning">⚠️ 响应时间: ${duration}ms (一般)</div>`;
+                } else {
+                    html += `<div class="status-card error">❌ 响应时间: ${duration}ms (较慢)</div>`;
+                    issues.push('响应时间过长');
+                }
+            } catch (error) {
+                html += '<div class="status-card error">❌ 无法测量响应时间</div>';
+            }
+
+            diagDiv.innerHTML = html;
+            addLog('网络诊断完成', issues.length > 0 ? 'error' : 'success');
+        }
+
+        // 更新建议
+        function updateSuggestions(successCount, totalCount) {
+            const suggestionsDiv = document.getElementById('suggestions');
+
+            if (successCount === 0) {
+                suggestionsDiv.innerHTML = `<div class="status-card error">
+                    <div>🚨 所有API都失败了！</div>
+                    <div style="margin-top: 10px; text-align: left;">
+                    <strong>可能的原因：</strong><br>
+                    1. Worker未正确部署<br>
+                    2. 网络连接问题<br>
+                    3. DNS解析问题<br><br>
+                    <strong>建议操作：</strong><br>
+                    1. 运行系统状态检查<br>
+                    2. 运行网络诊断<br>
+                    3. 检查Worker部署状态<br>
+                    4. 查看浏览器控制台错误
+                    </div>
+                </div>`;
+            } else if (successCount < totalCount) {
+                suggestionsDiv.innerHTML = `<div class="status-card warning">
+                    <div>⚠️ 部分API失败</div>
+                    <div style="margin-top: 10px;">这是正常的，系统会自动使用可用的API</div>
+                </div>`;
+            } else {
+                suggestionsDiv.innerHTML = `<div class="status-card healthy">
+                    <div>✅ 所有API正常工作！</div>
+                    <div style="margin-top: 10px;">系统运行完美</div>
+                </div>`;
+            }
+        }
+
+        // 页面加载时自动运行系统检查
+        window.addEventListener('load', () => {
+            addLog('调试工具已加载', 'info');
+            addLog('Worker URL: ' + WORKER_URL, 'info');
+
+            // 自动运行系统状态检查
+            setTimeout(() => {
+                checkSystemStatus();
+            }, 500);
+        });
+
+        // 监听网络状态
+        window.addEventListener('online', () => {
+            addLog('网络已连接', 'success');
+        });
+
+        window.addEventListener('offline', () => {
+            addLog('网络已断开', 'error');
+        });
+    </script>
+</body>
+</html>

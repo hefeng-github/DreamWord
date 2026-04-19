@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DreamWord 查词预览 - 使用示例</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #7f8c8d;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+            padding: 30px;
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 15px;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        button {
+            padding: 12px 24px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        .result {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .result.show {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .word-title {
+            font-size: 2em;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .phonetic {
+            color: #7f8c8d;
+            font-size: 1.2em;
+            margin-bottom: 15px;
+        }
+
+        .section-title {
+            font-size: 1em;
+            color: #34495e;
+            margin: 15px 0 10px;
+            font-weight: 600;
+        }
+
+        .definitions-list,
+        .examples-list {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .definitions-list li {
+            padding: 8px 0;
+            color: #2c3e50;
+            border-bottom: 1px solid #ecf0f1;
+        }
+
+        .examples-list li {
+            padding: 8px 0;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #95a5a6;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .code-example {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+
+        .code-example code {
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            color: #2c3e50;
+        }
+
+        .api-endpoint {
+            background: #e8f4f8;
+            padding: 12px;
+            border-radius: 6px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+
+        .method {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 12px;
+            margin-right: 8px;
+        }
+
+        .method.get {
+            background: #27ae60;
+            color: white;
+        }
+
+        .tab-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab-button {
+            padding: 10px 20px;
+            background: #ecf0f1;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .tab-button.active {
+            background: #3498db;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 DreamWord 查词预览 API</h1>
+            <p>快速、可靠的在线词典查询服务</p>
+        </div>
+
+        <!-- 查词演示 -->
+        <div class="card">
+            <h2>📖 在线查词演示</h2>
+            <div class="search-box">
+                <input type="text" id="wordInput" placeholder="输入要查询的单词..." />
+                <button onclick="lookupWord()">查询</button>
+            </div>
+            <div id="result" class="result"></div>
+        </div>
+
+        <!-- API文档 -->
+        <div class="card">
+            <h2>📚 API 使用文档</h2>
+
+            <div class="tab-buttons">
+                <button class="tab-button active" onclick="showTab('javascript')">JavaScript</button>
+                <button class="tab-button" onclick="showTab('python')">Python</button>
+                <button class="tab-button" onclick="showTab('curl')">cURL</button>
+            </div>
+
+            <div id="tab-javascript" class="tab-content active">
+                <h3>JavaScript/TypeScript</h3>
+
+                <div class="api-endpoint">
+                    <span class="method get">GET</span>
+                    <code>/api/lookup?word=hello</code>
+                </div>
+
+                <div class="code-example">
+                    <code>
+                        async function lookupWord(word) {<br>
+                        &nbsp;&nbsp;const response = await fetch(<br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;'https://your-worker.workers.dev/api/lookup?word=' + encodeURIComponent(word)<br>
+                        &nbsp;&nbsp;);<br>
+                        &nbsp;&nbsp;const data = await response.json();<br>
+                        &nbsp;&nbsp;return data;<br>
+                        }<br>
+                        <br>
+                        // 使用示例<br>
+                        const result = await lookupWord('hello');<br>
+                        console.log(result.definitions);
+                    </code>
+                </div>
+            </div>
+
+            <div id="tab-python" class="tab-content">
+                <h3>Python</h3>
+
+                <div class="api-endpoint">
+                    <span class="method get">GET</span>
+                    <code>/api/lookup?word=hello</code>
+                </div>
+
+                <div class="code-example">
+                    <code>
+                        import requests<br>
+                        <br>
+                        def lookup_word(word):<br>
+                        &nbsp;&nbsp;url = f"https://your-worker.workers.dev/api/lookup?word={word}"<br>
+                        &nbsp;&nbsp;response = requests.get(url)<br>
+                        &nbsp;&nbsp;return response.json()<br>
+                        <br>
+                        # 使用示例<br>
+                        result = lookup_word('hello')<br>
+                        print(result['definitions'])
+                    </code>
+                </div>
+            </div>
+
+            <div id="tab-curl" class="tab-content">
+                <h3>cURL</h3>
+
+                <div class="api-endpoint">
+                    <span class="method get">GET</span>
+                    <code>/api/lookup?word=hello</code>
+                </div>
+
+                <div class="code-example">
+                    <code>
+                        curl "https://your-worker.workers.dev/api/lookup?word=hello"<br>
+                        <br>
+                        # 使用jq格式化输出<br>
+                        curl "https://your-worker.workers.dev/api/lookup?word=hello" | jq
+                    </code>
+                </div>
+            </div>
+        </div>
+
+        <!-- 响应格式 -->
+        <div class="card">
+            <h2>📋 响应格式</h2>
+
+            <h3>成功响应</h3>
+            <div class="code-example">
+                <code>
+                    {<br>
+                    &nbsp;&nbsp;"success": true,<br>
+                    &nbsp;&nbsp;"word": "hello",<br>
+                    &nbsp;&nbsp;"phonetic": "UK: /həˈləʊ/ | US: /həˈloʊ/",<br>
+                    &nbsp;&nbsp;"definitions": [<br>
+                    &nbsp;&nbsp;&nbsp;&nbsp;"n. 你好；哈啰",<br>
+                    &nbsp;&nbsp;&nbsp;&nbsp;"int. 喂；哈喽"<br>
+                    &nbsp;&nbsp;],<br>
+                    &nbsp;&nbsp;"examples": [<br>
+                    &nbsp;&nbsp;&nbsp;&nbsp;"Hello, how are you?",<br>
+                    &nbsp;&nbsp;&nbsp;&nbsp;"She said hello to me."<br>
+                    &nbsp;&nbsp;],<br>
+                    &nbsp;&nbsp;"base_form": null,<br>
+                    &nbsp;&nbsp;"pos": "n."<br>
+                    }
+                </code>
+            </div>
+
+            <h3>错误响应</h3>
+            <div class="code-example">
+                <code>
+                    {<br>
+                    &nbsp;&nbsp;"success": false,<br>
+                    &nbsp;&nbsp;"error": "未找到该单词"<br>
+                    }
+                </code>
+            </div>
+        </div>
+
+        <!-- 特性说明 -->
+        <div class="card">
+            <h2>✨ 核心特性</h2>
+            <ul style="list-style: none; padding: 0;">
+                <li style="padding: 10px 0; border-bottom: 1px solid #ecf0f1;">
+                    <strong>🚀 极速响应</strong> - 利用Cloudflare全球CDN，平均响应时间 &lt; 100ms
+                </li>
+                <li style="padding: 10px 0; border-bottom: 1px solid #ecf0f1;">
+                    <strong>🌍 全球部署</strong> - 自动在300+个城市部署
+                </li>
+                <li style="padding: 10px 0; border-bottom: 1px solid #ecf0f1;">
+                    <strong>💰 免费套餐</strong> - 每天100,000次免费请求
+                </li>
+                <li style="padding: 10px 0; border-bottom: 1px solid #ecf0f1;">
+                    <strong>🔒 HTTPS支持</strong> - 所有请求自动使用HTTPS加密
+                </li>
+                <li style="padding: 10px 0;">
+                    <strong>📱 响应式</strong> - 支持Web、移动端、桌面应用
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // 查词函数
+        async function lookupWord() {
+            const word = document.getElementById('wordInput').value.trim();
+            const resultDiv = document.getElementById('result');
+
+            if (!word) {
+                resultDiv.innerHTML = '<div class="error">请输入要查询的单词</div>';
+                resultDiv.classList.add('show');
+                return;
+            }
+
+            resultDiv.innerHTML = '<div class="loading">查询中...</div>';
+            resultDiv.classList.add('show');
+
+            try {
+                // 替换为你的Worker URL
+                const workerUrl = window.location.origin;
+                const response = await fetch(`${workerUrl}/api/lookup?word=${encodeURIComponent(word)}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    displayResult(data);
+                } else {
+                    resultDiv.innerHTML = `<div class="error">${data.error}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<div class="error">查询失败，请稍后重试</div>';
+            }
+        }
+
+        // 显示结果
+        function displayResult(data) {
+            const resultDiv = document.getElementById('result');
+
+            let html = `
+                <div class="word-title">${data.word}</div>
+                ${data.phonetic ? `<div class="phonetic">${data.phonetic}</div>` : ''}
+            `;
+
+            if (data.definitions && data.definitions.length > 0) {
+                html += '<div class="section-title">释义</div>';
+                html += '<ul class="definitions-list">';
+                data.definitions.forEach(def => {
+                    html += `<li>${def}</li>`;
+                });
+                html += '</ul>';
+            }
+
+            if (data.examples && data.examples.length > 0) {
+                html += '<div class="section-title">例句</div>';
+                html += '<ul class="examples-list">';
+                data.examples.slice(0, 3).forEach(ex => {
+                    html += `<li>${ex}</li>`;
+                });
+                html += '</ul>';
+            }
+
+            resultDiv.innerHTML = html;
+        }
+
+        // 切换标签
+        function showTab(tabName) {
+            // 隐藏所有标签内容
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+
+            // 移除所有按钮的active类
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+            });
+
+            // 显示选中的标签内容
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+
+            // 激活对应按钮
+            event.target.classList.add('active');
+        }
+
+        // 回车键查询
+        document.getElementById('wordInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                lookupWord();
+            }
+        });
+    </script>
+</body>
+</html>

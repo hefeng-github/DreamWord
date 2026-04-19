@@ -17,6 +17,7 @@
         <!-- 导航标签 -->
         <nav class="tabs">
             <button class="tab-button active" onclick="showTab('write', event)">✍️ 书写文字</button>
+            <button class="tab-button" onclick="showTab('word-preview', event)">🔍 查词预览</button>
             <button class="tab-button" onclick="showTab('auto-lookup', event)">📚 自动查词</button>
             <button class="tab-button" onclick="showTab('auto-copy', event)">📝 自动抄写</button>
             <button class="tab-button" onclick="showTab('import-words', event)">📥 导入单词</button>
@@ -50,6 +51,76 @@
                             <img id="write-preview" alt="预览图" style="max-width: 100%;">
                         </div>
                         <a id="write-download" class="btn btn-success" download>下载Gcode</a>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 查词预览 -->
+            <section id="tab-word-preview" class="tab-content">
+                <div class="card">
+                    <h2>🔍 单词查询预览</h2>
+                    <div class="alert alert-info">
+                        <strong>功能说明：</strong>
+                        <p>输入单词即可实时查看释义、音标、例句等详细信息。</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="preview-word-input">输入单词：</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="preview-word-input"
+                                   placeholder="输入要查询的单词..."
+                                   style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;"
+                                   oninput="debounceLookup()">
+                            <button class="btn btn-primary" onclick="lookupWord()">查询</button>
+                        </div>
+                    </div>
+
+                    <!-- 查询结果 -->
+                    <div id="word-preview-result" style="display: none;">
+                        <div class="word-preview-card">
+                            <!-- 单词标题 -->
+                            <div class="word-preview-header">
+                                <h3 id="preview-word" style="font-size: 2em; margin: 0; color: #2c3e50;"></h3>
+                                <span id="preview-phonetic" style="font-size: 1.2em; color: #7f8c8d; margin-left: 15px;"></span>
+                                <span id="preview-pos" style="font-size: 1em; color: #95a5a6; margin-left: 10px; background: #ecf0f1; padding: 2px 8px; border-radius: 3px;"></span>
+                            </div>
+
+                            <!-- 释义 -->
+                            <div id="preview-definitions-section" style="margin-top: 20px;">
+                                <h4 style="color: #34495e; margin-bottom: 10px;">📖 释义</h4>
+                                <ul id="preview-definitions" style="line-height: 1.8; padding-left: 20px;"></ul>
+                            </div>
+
+                            <!-- 例句 -->
+                            <div id="preview-examples-section" style="margin-top: 20px; display: none;">
+                                <h4 style="color: #34495e; margin-bottom: 10px;">💡 例句</h4>
+                                <ul id="preview-examples" style="line-height: 1.8; padding-left: 20px; font-style: italic;"></ul>
+                            </div>
+
+                            <!-- 词根信息 -->
+                            <div id="preview-base-form-section" style="margin-top: 20px; display: none;">
+                                <h4 style="color: #34495e; margin-bottom: 10px;">🔤 词形</h4>
+                                <p id="preview-base-form" style="color: #7f8c8d;"></p>
+                            </div>
+
+                            <!-- 所有词条 -->
+                            <div id="preview-all-entries-section" style="margin-top: 20px; display: none;">
+                                <h4 style="color: #34495e; margin-bottom: 10px;">📚 所有词条</h4>
+                                <div id="preview-all-entries" style="max-height: 300px; overflow-y: auto; border: 1px solid #ecf0f1; padding: 10px; border-radius: 4px;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 无结果提示 -->
+                    <div id="word-preview-no-result" style="display: none; text-align: center; padding: 40px; color: #95a5a6;">
+                        <p style="font-size: 1.2em;">😕 未找到该单词</p>
+                        <p style="margin-top: 10px;">请检查拼写或尝试其他单词</p>
+                    </div>
+
+                    <!-- 加载提示 -->
+                    <div id="word-preview-loading" style="display: none; text-align: center; padding: 40px;">
+                        <div class="spinner" style="margin: 0 auto 20px;"></div>
+                        <p style="color: #7f8c8d;">查询中...</p>
                     </div>
                 </div>
             </section>
@@ -220,16 +291,6 @@
                         </div>
                     </div>
 
-                    <!-- 标记位置输入 -->
-                    <div class="form-group">
-                        <h3>第二步：确认标记位置</h3>
-                        <div class="form-group">
-                            <label for="marker-size">ArUco标记尺寸（毫米）：</label>
-                            <input type="number" id="marker-size" value="30" min="10" max="100">
-                        </div>
-                        <div class="form-group">
-                            <label>标记位置（毫米）：</label>
-                            <div id="marker-positions">
                     <div class="form-group">
                         <label for="calib-image">上传校准照片：</label>
                         <input type="file" id="calib-image" accept="image/*" onchange="previewImage(this, 'calib-preview')">

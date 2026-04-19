@@ -1,0 +1,39 @@
+{
+  "name": "dreamword-word-lookup-worker",
+  "version": "1.0.0",
+  "description": "DreamWord查词预览服务 - Cloudflare Workers版本",
+  "main": "worker.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "node build.js",
+    "deploy": "npm run build && wrangler publish",
+    "deploy:production": "npm run build && wrangler publish --env production",
+    "deploy:staging": "npm run build && wrangler publish --env staging",
+    "tail": "wrangler tail",
+    "login": "wrangler login",
+    "test": "node test-worker.js",
+    "test:local": "WORKER_URL=http://localhost:8787 node test-worker.js",
+    "test:api": "node test-api.js",
+    "test:remote": "WORKER_URL=https://dreamword-word-lookup.你的账户.workers.dev/ node test-api.js"
+  },
+  "keywords": [
+    "dictionary",
+    "word-lookup",
+    "cloudflare-workers",
+    "serverless",
+    "api"
+  ],
+  "author": "DreamWord",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "homepage": "https://github.com/your-username/dreamword",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/dreamword.git"
+  }
+}

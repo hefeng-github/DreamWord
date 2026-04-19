@@ -782,3 +782,130 @@ body {
     margin-bottom: 15px;
 }
 
+/* ==================== 单词预览样式 ==================== */
+
+.word-preview-card {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 15px;
+    animation: fadeIn 0.3s ease;
+}
+
+.word-preview-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.word-preview-header h3 {
+    margin: 0;
+    color: #2c3e50;
+    font-size: 2em;
+}
+
+.word-preview-header #preview-phonetic {
+    color: #7f8c8d;
+    font-size: 1.2em;
+    margin-left: 15px;
+    font-family: 'Lucida Sans Unicode', 'Arial Unicode MS', sans-serif;
+}
+
+.word-preview-header #preview-pos {
+    color: #95a5a6;
+    font-size: 1em;
+    margin-left: 10px;
+    background: #ecf0f1;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 500;
+}
+
+#preview-definitions-section h4,
+#preview-examples-section h4,
+#preview-base-form-section h4,
+#preview-all-entries-section h4 {
+    color: #34495e;
+    margin-bottom: 10px;
+    font-size: 1.1em;
+}
+
+#preview-definitions {
+    line-height: 1.8;
+    padding-left: 20px;
+}
+
+#preview-definitions li {
+    margin-bottom: 8px;
+    color: #2c3e50;
+}
+
+#preview-examples {
+    line-height: 1.8;
+    padding-left: 20px;
+}
+
+#preview-examples li {
+    margin-bottom: 8px;
+    color: #7f8c8d;
+    font-style: italic;
+}
+
+#preview-base-form {
+    color: #7f8c8d;
+    font-size: 1.1em;
+}
+
+#preview-all-entries {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #ecf0f1;
+    padding: 10px;
+    border-radius: 4px;
+    background: white;
+}
+
+#preview-all-entries div {
+    padding: 10px;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+#preview-all-entries div:last-child {
+    border-bottom: none;
+}
+
+#word-preview-no-result {
+    text-align: center;
+    padding: 40px;
+    color: #95a5a6;
+}
+
+#word-preview-no-result p:first-child {
+    font-size: 1.2em;
+    margin-bottom: 10px;
+}
+
+#word-preview-loading {
+    text-align: center;
+    padding: 40px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .word-preview-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .word-preview-header #preview-phonetic {
+        margin-left: 0;
+        margin-top: 5px;
+    }
+
+    .word-preview-header #preview-pos {
+        margin-left: 0;
+        margin-top: 5px;
+    }
+}

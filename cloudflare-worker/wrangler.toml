@@ -1,0 +1,99 @@
+# Cloudflare Workers 配置文件
+# 文档: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "dreamword-word-lookup"
+main = "worker.js"  # 使用 worker-with-d1.js 启用数据库功能
+compatibility_date = "2024-01-01"
+
+# 账户配置
+# 如果是你的第一个Worker，可以留空，Wrangler会自动配置
+# account_id = ""
+
+# =============================================
+# D1 数据库绑定（类似Python版本的SQLite）
+# =============================================
+
+# 创建D1数据库：npx wrangler d1 create dreamword-dict
+# 然后将输出的 database_id 填入下方
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dreamword-dict"
+database_id = "YOUR_DATABASE_ID_HERE"  # 替换为实际的database_id
+
+# =============================================
+# KV 缓存绑定（可选，用于加速查询）
+# =============================================
+
+# 创建KV命名空间：npx wrangler kv:namespace create WORD_CACHE
+# 然后将输出的 id 填入下方
+
+[[kv_namespaces]]
+binding = "WORD_CACHE"
+id = "YOUR_KV_ID_HERE"  # 替换为实际的namespace_id
+preview_id = "YOUR_PREVIEW_KV_ID_HERE"  # 预览环境ID
+
+# =============================================
+# 路由配置（可选）
+# =============================================
+
+# routes = [
+#   { pattern = "dict.yourdomain.com/*", zone_name = "yourdomain.com" }
+# ]
+
+# =============================================
+# 环境变量（可选）
+# =============================================
+
+# [vars]
+# API_KEY = "your-api-key"
+
+# =============================================
+# 配置不同的环境
+# =============================================
+
+[env.production]
+name = "dreamword-word-lookup"
+routes = [
+  { pattern = "dict.yourdomain.com/*", zone_name = "yourdomain.com" }
+]
+
+# 生产环境的数据库绑定
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "dreamword-dict"
+database_id = "YOUR_PRODUCTION_DATABASE_ID"
+
+[env.staging]
+name = "dreamword-word-lookup-staging"
+
+# 测试环境的数据库绑定
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "dreamword-dict-staging"
+database_id = "YOUR_STAGING_DATABASE_ID"
+
+# =============================================
+# 构建配置
+# =============================================
+
+# [build]
+# command = "npm run build"
+# cwd = "dist"
+
+# =============================================
+# 部署配置
+# =============================================
+
+[env.production.deploy]
+compatibility_date = "2024-01-01"
+
+# =============================================
+# 高级功能（可选）
+# =============================================
+
+# 如果需要使用Durable Objects
+# [env.production.durable_objects]
+# bindings = [
+#   { name = "CACHE", class_name = "WordCache" }
+# ] ]

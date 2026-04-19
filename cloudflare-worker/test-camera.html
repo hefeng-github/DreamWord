@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DreamWord - 功能测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h2 {
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .success {
+            color: #28a745;
+        }
+        .error {
+            color: #dc3545;
+        }
+        .info {
+            color: #17a2b8;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 DreamWord 功能测试</h1>
+
+    <div class="test-section">
+        <h2>1. 查词API测试</h2>
+        <input type="text" id="testWord" placeholder="输入要测试的单词" value="hello">
+        <button onclick="testLookup()">测试查词API</button>
+        <button onclick="testBatchLookup()">测试批量查词API</button>
+        <div id="lookupResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. 摄像头功能测试</h2>
+        <button onclick="testCameraAccess()">测试摄像头访问</button>
+        <button onclick="captureTest()">测试拍照功能</button>
+        <div id="cameraResult" class="result"></div>
+        <video id="testVideo" autoplay playsinline style="width: 100%; max-height: 300px; display: none;"></video>
+        <canvas id="testCanvas" style="display: none;"></canvas>
+    </div>
+
+    <div class="test-section">
+        <h2>3. OCR功能测试</h2>
+        <input type="file" id="ocrTestFile" accept="image/*" onchange="testOCR(this)">
+        <div id="ocrResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. 页面访问测试</h2>
+        <button onclick="window.location.href='/lookup'">访问智能查词页面</button>
+        <button onclick="testHealthAPI()">测试健康检查API</button>
+        <div id="pageResult" class="result"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script>
+        let testCameraStream = null;
+
+        // 测试查词API
+        async function testLookup() {
+            const word = document.getElementById('testWord').value;
+            const resultDiv = document.getElementById('lookupResult');
+            resultDiv.innerHTML = '<div class="info">测试中...</div>';
+
+            try {
+                const response = await fetch(`/api/lookup?word=${encodeURIComponent(word)}`);
+                const data = await response.json();
+
+                resultDiv.innerHTML = `<div class="success">✅ 查词API测试成功</div>` +
+                    `响应数据：\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ 查词API测试失败：${error.message}</div>`;
+            }
+        }
+
+        // 测试批量查词API
+        async function testBatchLookup() {
+            const words = ['hello', 'world', 'test'];
+            const resultDiv = document.getElementById('lookupResult');
+            resultDiv.innerHTML = '<div class="info">测试中...</div>';
+
+            try {
+                const response = await fetch(`/api/batch-lookup?words=${encodeURIComponent(words.join(','))}`);
+                const data = await response.json();
+
+                resultDiv.innerHTML = `<div class="success">✅ 批量查词API测试成功</div>` +
+                    `查询单词：${words.join(', ')}\n\n` +
+                    `响应数据：\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ 批量查词API测试失败：${error.message}</div>`;
+            }
+        }
+
+        // 测试摄像头访问
+        async function testCameraAccess() {
+            const resultDiv = document.getElementById('cameraResult');
+            const video = document.getElementById('testVideo');
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                resultDiv.innerHTML = '<div class="error">❌ 浏览器不支持摄像头API</div>';
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+
+                testCameraStream = stream;
+                video.srcObject = stream;
+                video.style.display = 'block';
+
+                resultDiv.innerHTML = '<div class="success">✅ 摄像头访问成功</div>';
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ 摄像头访问失败：${error.message}</div>`;
+            }
+        }
+
+        // 测试拍照功能
+        function captureTest() {
+            const resultDiv = document.getElementById('cameraResult');
+            const video = document.getElementById('testVideo');
+            const canvas = document.getElementById('testCanvas');
+
+            if (!testCameraStream) {
+                resultDiv.innerHTML = '<div class="error">❌ 请先访问摄像头</div>';
+                return;
+            }
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+
+            const imageData = canvas.toDataURL('image/png');
+            resultDiv.innerHTML = '<div class="success">✅ 拍照成功</div>' +
+                `图片尺寸：${canvas.width}x${canvas.height}\n` +
+                `数据长度：${imageData.length} 字符\n` +
+                `<img src="${imageData}" style="max-width: 100%; margin-top: 10px; border-radius: 4px;">`;
+        }
+
+        // 测试OCR功能
+        async function testOCR(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const resultDiv = document.getElementById('ocrResult');
+            resultDiv.innerHTML = '<div class="info">正在OCR识别...</div>';
+
+            try {
+                const result = await Tesseract.recognize(file, 'eng', {
+                    logger: m => {
+                        if (m.status === 'recognizing text') {
+                            const progress = Math.round(m.progress * 100);
+                            resultDiv.innerHTML = `<div class="info">OCR进度：${progress}%</div>`;
+                        }
+                    }
+                });
+
+                const text = result.data.text;
+                const words = text.toLowerCase()
+                    .replace(/[^\w\s]/g, ' ')
+                    .split(/\s+/)
+                    .filter(w => w.length > 2 && /^[a-z]+$/.test(w));
+
+                resultDiv.innerHTML = `<div class="success">✅ OCR识别成功</div>` +
+                    `识别文本：\n${text}\n\n` +
+                    `提取的英文单词（${words.length}个）：\n${words.join(', ')}`;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ OCR识别失败：${error.message}</div>`;
+            }
+        }
+
+        // 测试健康检查API
+        async function testHealthAPI() {
+            const resultDiv = document.getElementById('pageResult');
+            resultDiv.innerHTML = '<div class="info">测试中...</div>';
+
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+
+                resultDiv.innerHTML = `<div class="success">✅ 健康检查API测试成功</div>` +
+                    `响应数据：\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ 健康检查API测试失败：${error.message}</div>`;
+            }
+        }
+
+        // 页面加载时自动测试健康检查
+        window.addEventListener('load', () => {
+            testHealthAPI();
+        });
+
+        // 清理摄像头资源
+        window.addEventListener('beforeunload', () => {
+            if (testCameraStream) {
+                testCameraStream.getTracks().forEach(track => track.stop());
+            }
+        });
+    </script>
+</body>
+</html>
