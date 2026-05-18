@@ -669,21 +669,40 @@ async function checkOnedriveStatus() {
     try {
         const resp = await fetch(API_BASE + '/api/onedrive/status');
         const data = await resp.json();
-        if (!data.configured) {
-            document.getElementById('onedrive-status').innerHTML = '未配置OneDrive Client ID，请设置环境变量 <code>ONEDRIVE_CLIENT_ID</code>';
+        const connectBtn = document.getElementById('btn-onedrive-connect');
+        const backupBtn = document.getElementById('btn-onedrive-backup');
+        const listBtn = document.getElementById('btn-onedrive-list');
+        const disconnectBtn = document.getElementById('btn-onedrive-disconnect');
+        const statusEl = document.getElementById('onedrive-status');
+
+        if (!data.configured || !data.client_id_set) {
+            statusEl.innerHTML = '未配置 Client ID，请在上方输入并保存';
+            hide(connectBtn); hide(backupBtn); hide(listBtn); hide(disconnectBtn);
             return;
         }
         if (data.authorized) {
-            document.getElementById('onedrive-status').innerHTML = '已连接OneDrive';
-            document.getElementById('btn-onedrive-connect').classList.add('hidden');
-            document.getElementById('btn-onedrive-backup').classList.remove('hidden');
-            document.getElementById('btn-onedrive-list').classList.remove('hidden');
-            document.getElementById('btn-onedrive-disconnect').classList.remove('hidden');
+            statusEl.innerHTML = '已连接OneDrive';
+            hide(connectBtn);
+            show(backupBtn); show(listBtn); show(disconnectBtn);
         } else {
-            document.getElementById('onedrive-status').innerHTML = '未连接OneDrive';
-            document.getElementById('btn-onedrive-connect').classList.remove('hidden');
+            statusEl.innerHTML = '已配置 Client ID，点击「连接OneDrive」授权';
+            show(connectBtn);
+            hide(backupBtn); hide(listBtn); hide(disconnectBtn);
         }
     } catch {}
+}
+
+function saveOnedriveClientId() {
+    const clientId = document.getElementById('onedrive-client-id').value.trim();
+    if (!clientId) return showNotification('请输入 Client ID', 'error');
+    apiRequest({
+        url: '/api/onedrive/config',
+        json: { client_id: clientId },
+        onSuccess() {
+            showNotification('Client ID 已保存', 'success');
+            checkOnedriveStatus();
+        }
+    });
 }
 
 function onedriveConnect() {

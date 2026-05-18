@@ -152,9 +152,19 @@
                         <hr class="section-divider">
 
                         <h3>☁️ OneDrive 备份</h3>
+                        <div id="onedrive-config-section">
+                            <div class="form-group">
+                                <label for="onedrive-client-id">OneDrive Client ID：</label>
+                                <div class="input-row">
+                                    <input type="text" id="onedrive-client-id" class="flex-input" placeholder="输入Azure应用的Client ID...">
+                                    <button class="btn btn-primary btn-small" onclick="saveOnedriveClientId()">保存</button>
+                                </div>
+                                <p class="hint-text">在 <a href="https://portal.azure.com/" target="_blank">Azure Portal</a> 注册应用获取 Client ID，API权限选择 Files.ReadWrite.AppFolder</p>
+                            </div>
+                        </div>
                         <div id="onedrive-status" class="hint-text"></div>
                         <div class="btn-row">
-                            <button class="btn btn-primary btn-small" onclick="onedriveConnect()" id="btn-onedrive-connect">连接OneDrive</button>
+                            <button class="btn btn-primary btn-small hidden" onclick="onedriveConnect()" id="btn-onedrive-connect">连接OneDrive</button>
                             <button class="btn btn-primary btn-small hidden" onclick="onedriveBackup()" id="btn-onedrive-backup">备份到OneDrive</button>
                             <button class="btn btn-secondary btn-small hidden" onclick="onedriveListBackups()" id="btn-onedrive-list">查看备份</button>
                             <button class="btn btn-danger btn-small hidden" onclick="onedriveDisconnect()" id="btn-onedrive-disconnect">断开连接</button>

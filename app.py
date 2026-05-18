@@ -525,12 +525,25 @@ def api_remove_known_word():
         return jsonify({'success': False, 'error': str(e)})
 
 
-ONEDRIVE_CLIENT_ID = os.environ.get('ONEDRIVE_CLIENT_ID', '')
+ONEDRIVE_CONFIG_FILE = 'onedrive_config.json'
+
+
+def _get_onedrive_client_id():
+    env_val = os.environ.get('ONEDRIVE_CLIENT_ID', '')
+    if env_val:
+        return env_val
+    if os.path.exists(ONEDRIVE_CONFIG_FILE):
+        try:
+            with open(ONEDRIVE_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f).get('client_id', '')
+        except Exception:
+            pass
+    return ''
 
 
 def _get_onedrive_backup():
     from src.modules.onedrive_backup import OneDriveBackup
-    return OneDriveBackup(client_id=ONEDRIVE_CLIENT_ID)
+    return OneDriveBackup(client_id=_get_onedrive_client_id())
 
 
 @app.route('/api/onedrive/auth', methods=['POST'])
@@ -571,16 +584,31 @@ def api_onedrive_poll():
 @app.route('/api/onedrive/status', methods=['GET'])
 def api_onedrive_status():
     try:
-        if not ONEDRIVE_CLIENT_ID:
-            return jsonify({'success': True, 'configured': False})
-        backup = _get_onedrive_backup()
+        client_id = _get_onedrive_client_id()
+        configured = bool(client_id)
+        backup = _get_onedrive_backup() if configured else None
         return jsonify({
             'success': True,
-            'configured': True,
-            'authorized': backup.is_authorized()
+            'configured': configured,
+            'authorized': backup.is_authorized() if backup else False,
+            'client_id_set': bool(client_id)
         })
     except Exception:
-        return jsonify({'success': True, 'configured': bool(ONEDRIVE_CLIENT_ID), 'authorized': False})
+        return jsonify({'success': True, 'configured': False, 'authorized': False, 'client_id_set': False})
+
+
+@app.route('/api/onedrive/config', methods=['POST'])
+def api_onedrive_config():
+    try:
+        data = _json_data()
+        client_id = data.get('client_id', '').strip()
+        if not client_id:
+            return _error('Client ID 不能为空')
+        with open(ONEDRIVE_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'client_id': client_id}, f, indent=2)
+        return jsonify({'success': True, 'message': 'Client ID 已保存'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/onedrive/backup', methods=['POST'])

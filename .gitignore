@@ -59,6 +59,7 @@ Thumbs.db
 
 # OneDrive token
 onedrive_token.json
+onedrive_config.json
 backup_meta.json
 
 # Testing
