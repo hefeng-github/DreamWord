@@ -190,101 +190,102 @@
             <!-- ==================== Tab 2: 查词 ==================== -->
             <section id="tab-lookup" class="tab-content">
 
-                <!-- 手动查词 -->
+                <!-- 拍照查词书写（核心功能，直接展示） -->
                 <div class="card">
-                    <h2>🔍 单词查询</h2>
+                    <h2>📚 拍照查词书写</h2>
+                    <div class="alert alert-info">
+                        <strong>功能说明：</strong>上传试卷图片，自动识别英文单词，查找生词释义和音标，生成书写Gcode让写字机在试卷上书写标注。
+                    </div>
                     <div class="form-group">
-                        <label for="preview-word-input">输入单词：</label>
-                        <div class="input-row">
-                            <input type="text" id="preview-word-input"
-                                   class="flex-input"
-                                   placeholder="输入要查询的单词..."
-                                   oninput="debounceLookup()">
-                            <button class="btn btn-primary" onclick="lookupWord()">查询</button>
-                        </div>
-                    </div>
-
-                    <div id="word-preview-result" class="hidden">
-                        <div class="word-preview-card">
-                            <div class="word-preview-header">
-                                <h3 id="preview-word" class="preview-word-title"></h3>
-                                <span id="preview-phonetic" class="preview-phonetic"></span>
-                                <span id="preview-pos" class="preview-pos-badge"></span>
-                            </div>
-
-                            <div id="preview-definitions-section" class="preview-section-block">
-                                <h4 class="preview-section-title">释义</h4>
-                                <ul id="preview-definitions" class="preview-list"></ul>
-                            </div>
-
-                            <div id="preview-examples-section" class="preview-section-block hidden">
-                                <h4 class="preview-section-title">例句</h4>
-                                <ul id="preview-examples" class="preview-list preview-list-italic"></ul>
-                            </div>
-
-                            <div id="preview-base-form-section" class="preview-section-block hidden">
-                                <h4 class="preview-section-title">词形</h4>
-                                <p id="preview-base-form" class="preview-base-form-text"></p>
-                            </div>
-
-                            <div id="preview-all-entries-section" class="preview-section-block hidden">
-                                <h4 class="preview-section-title">所有词条</h4>
-                                <div id="preview-all-entries" class="preview-all-entries"></div>
+                        <label for="lookup-image">上传试卷图片：</label>
+                        <input type="file" id="lookup-image" accept="image/*" onchange="previewImage(this, 'lookup-preview')">
+                        <div class="camera-section">
+                            <button type="button" class="camera-button" onclick="startCamera('lookup')">📱 使用本机摄像头</button>
+                            <div class="camera-video-container hidden" id="lookup-camera-container">
+                                <video id="lookup-video" class="camera-video" autoplay playsinline></video>
+                                <canvas id="lookup-canvas" class="camera-canvas"></canvas>
+                                <div class="camera-controls">
+                                    <button type="button" class="camera-capture-btn" onclick="capturePhoto('lookup')">📸 拍照</button>
+                                    <button type="button" class="camera-stop-btn" onclick="stopCamera('lookup')">❌ 关闭摄像头</button>
+                                </div>
                             </div>
                         </div>
+                        <div class="preview-section">
+                            <img id="lookup-preview" alt="图片预览">
+                        </div>
                     </div>
-
-                    <div id="word-preview-no-result" class="hidden preview-empty">
-                        <p class="preview-empty-title">未找到该单词</p>
-                        <p class="preview-empty-hint">请检查拼写或尝试其他单词</p>
+                    <div class="form-group">
+                        <label for="known-words-input">已知单词（逗号分隔，这些单词将被跳过）：</label>
+                        <input type="text" id="known-words-input" placeholder="hello,world,test">
                     </div>
+                    <button class="btn btn-primary" onclick="autoLookup()">开始查词书写</button>
 
-                    <div id="word-preview-loading" class="hidden preview-loading">
-                        <div class="spinner"></div>
-                        <p class="preview-loading-text">查询中...</p>
+                    <div id="lookup-result" class="result hidden">
+                        <h3>处理结果</h3>
+                        <div class="preview-section">
+                            <img id="lookup-annotated" alt="标注结果">
+                        </div>
+                        <a id="lookup-download" class="btn btn-success" download>下载Gcode</a>
+                        <p class="hint-text hint-top-margin">下载Gcode后，请使用写字机控制软件（如FluidNC）运行此文件，写字机将在试卷上书写生词的音标和释义。</p>
                     </div>
                 </div>
 
-                <!-- 拍照查词（折叠） -->
+                <!-- 手动查词（折叠） -->
                 <div class="card collapsible-card">
                     <div class="collapsible-header" onclick="toggleCollapse(this)">
-                        <h2>📚 拍照自动查词</h2>
+                        <h2>🔍 手动查词</h2>
                         <span class="collapsible-arrow">▶</span>
                     </div>
                     <div class="collapsible-body hidden">
-                        <div class="alert alert-info">
-                            <strong>功能说明：</strong>上传试卷图片，自动识别英文单词并查出生词释义。
-                        </div>
                         <div class="form-group">
-                            <label for="lookup-image">上传试卷图片：</label>
-                            <input type="file" id="lookup-image" accept="image/*" onchange="previewImage(this, 'lookup-preview')">
-                            <div class="camera-section">
-                                <button type="button" class="camera-button" onclick="startCamera('lookup')">📱 使用本机摄像头</button>
-                                <div class="camera-video-container hidden" id="lookup-camera-container">
-                                    <video id="lookup-video" class="camera-video" autoplay playsinline></video>
-                                    <canvas id="lookup-canvas" class="camera-canvas"></canvas>
-                                    <div class="camera-controls">
-                                        <button type="button" class="camera-capture-btn" onclick="capturePhoto('lookup')">📸 拍照</button>
-                                        <button type="button" class="camera-stop-btn" onclick="stopCamera('lookup')">❌ 关闭摄像头</button>
-                                    </div>
+                            <label for="preview-word-input">输入单词：</label>
+                            <div class="input-row">
+                                <input type="text" id="preview-word-input"
+                                       class="flex-input"
+                                       placeholder="输入要查询的单词..."
+                                       oninput="debounceLookup()">
+                                <button class="btn btn-primary" onclick="lookupWord()">查询</button>
+                            </div>
+                        </div>
+
+                        <div id="word-preview-result" class="hidden">
+                            <div class="word-preview-card">
+                                <div class="word-preview-header">
+                                    <h3 id="preview-word" class="preview-word-title"></h3>
+                                    <span id="preview-phonetic" class="preview-phonetic"></span>
+                                    <span id="preview-pos" class="preview-pos-badge"></span>
+                                </div>
+
+                                <div id="preview-definitions-section" class="preview-section-block">
+                                    <h4 class="preview-section-title">释义</h4>
+                                    <ul id="preview-definitions" class="preview-list"></ul>
+                                </div>
+
+                                <div id="preview-examples-section" class="preview-section-block hidden">
+                                    <h4 class="preview-section-title">例句</h4>
+                                    <ul id="preview-examples" class="preview-list preview-list-italic"></ul>
+                                </div>
+
+                                <div id="preview-base-form-section" class="preview-section-block hidden">
+                                    <h4 class="preview-section-title">词形</h4>
+                                    <p id="preview-base-form" class="preview-base-form-text"></p>
+                                </div>
+
+                                <div id="preview-all-entries-section" class="preview-section-block hidden">
+                                    <h4 class="preview-section-title">所有词条</h4>
+                                    <div id="preview-all-entries" class="preview-all-entries"></div>
                                 </div>
                             </div>
-                            <div class="preview-section">
-                                <img id="lookup-preview" alt="图片预览">
-                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="known-words-input">已知单词（逗号分隔）：</label>
-                            <input type="text" id="known-words-input" placeholder="hello,world,test">
-                        </div>
-                        <button class="btn btn-primary" onclick="autoLookup()">开始处理</button>
 
-                        <div id="lookup-result" class="result hidden">
-                            <h3>处理结果</h3>
-                            <div class="preview-section">
-                                <img id="lookup-annotated" alt="标注结果">
-                            </div>
-                            <a id="lookup-download" class="btn btn-success" download>下载Gcode</a>
+                        <div id="word-preview-no-result" class="hidden preview-empty">
+                            <p class="preview-empty-title">未找到该单词</p>
+                            <p class="preview-empty-hint">请检查拼写或尝试其他单词</p>
+                        </div>
+
+                        <div id="word-preview-loading" class="hidden preview-loading">
+                            <div class="spinner"></div>
+                            <p class="preview-loading-text">查询中...</p>
                         </div>
                     </div>
                 </div>
