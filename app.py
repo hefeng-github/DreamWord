@@ -10,7 +10,11 @@ import os
 from pathlib import Path
 import uuid
 import json
+import threading
 from typing import Any, Dict, Tuple
+
+import serial
+import serial.tools.list_ports
 
 # 导入项目模块（基础模块，无重型依赖）
 from src.modules.calibration import Calibrator, ArUcoMarkerGenerator
@@ -521,6 +525,136 @@ def api_remove_known_word():
             'message': f'已移除单词: {word}'
         })
 
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ==================== 串口通信（直接发送Gcode） ====================
+
+_serial_port = None
+_serial_lock = threading.Lock()
+_serial_status = {'connected': False, 'port': '', 'sending': False, 'progress': 0, 'total': 0, 'message': ''}
+
+
+def _serial_connect(port: str, baudrate: int = 115200) -> bool:
+    global _serial_port
+    try:
+        _serial_disconnect()
+        _serial_port = serial.Serial(port, baudrate, timeout=2)
+        import time; time.sleep(2)
+        _serial_port.write(b'\n')
+        _serial_status['connected'] = True
+        _serial_status['port'] = port
+        _serial_status['message'] = f'已连接 {port}'
+        return True
+    except Exception as e:
+        _serial_status['message'] = f'连接失败: {e}'
+        return False
+
+
+def _serial_disconnect():
+    global _serial_port
+    try:
+        if _serial_port and _serial_port.is_open:
+            _serial_port.close()
+    except Exception:
+        pass
+    _serial_port = None
+    _serial_status['connected'] = False
+    _serial_status['port'] = ''
+    _serial_status['sending'] = False
+
+
+def _serial_send_gcode(gcode_content: str):
+    global _serial_port
+    lines = [l.strip() for l in gcode_content.split('\n') if l.strip() and not l.strip().startswith(';')]
+    total = len(lines)
+    _serial_status['sending'] = True
+    _serial_status['progress'] = 0
+    _serial_status['total'] = total
+    _serial_status['message'] = f'发送中 0/{total}'
+
+    try:
+        for i, line in enumerate(lines):
+            if not _serial_port or not _serial_port.is_open:
+                _serial_status['message'] = '串口已断开'
+                break
+            with _serial_lock:
+                _serial_port.write((line + '\n').encode('utf-8'))
+                while True:
+                    resp = _serial_port.readline().decode('utf-8', errors='ignore').strip()
+                    if 'ok' in resp.lower() or 'error' in resp.lower() or not resp:
+                        break
+            _serial_status['progress'] = i + 1
+            _serial_status['message'] = f'发送中 {i + 1}/{total}'
+
+        _serial_status['message'] = f'发送完成 ({total} 行)'
+    except Exception as e:
+        _serial_status['message'] = f'发送失败: {e}'
+    finally:
+        _serial_status['sending'] = False
+
+
+@app.route('/api/serial/ports', methods=['GET'])
+def api_serial_ports():
+    try:
+        ports = [{'port': p.device, 'desc': p.description} for p in serial.tools.list_ports.comports()]
+        return jsonify({'success': True, 'ports': ports})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/serial/connect', methods=['POST'])
+def api_serial_connect():
+    try:
+        data = _json_data()
+        port = data.get('port', '')
+        baudrate = int(data.get('baudrate', 115200))
+        if not port:
+            return _error('请选择串口')
+        if _serial_connect(port, baudrate):
+            return jsonify({'success': True, 'message': f'已连接 {port}'})
+        return jsonify({'success': False, 'error': _serial_status['message']})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/serial/disconnect', methods=['POST'])
+def api_serial_disconnect():
+    _serial_disconnect()
+    return jsonify({'success': True, 'message': '已断开连接'})
+
+
+@app.route('/api/serial/status', methods=['GET'])
+def api_serial_status():
+    return jsonify({'success': True, **_serial_status})
+
+
+@app.route('/api/serial/send', methods=['POST'])
+def api_serial_send():
+    if not _serial_status['connected']:
+        return _error('串口未连接')
+    if _serial_status['sending']:
+        return _error('正在发送中，请等待')
+
+    try:
+        data = _json_data()
+        gcode_file = data.get('file', '')
+
+        if gcode_file:
+            filepath = Path(app.config['UPLOAD_FOLDER']) / secure_filename(gcode_file)
+            if not filepath.is_file():
+                return _error('Gcode文件不存在')
+            gcode_content = filepath.read_text(encoding='utf-8')
+        else:
+            gcode_content = data.get('gcode', '')
+
+        if not gcode_content.strip():
+            return _error('Gcode内容为空')
+
+        thread = threading.Thread(target=_serial_send_gcode, args=(gcode_content,), daemon=True)
+        thread.start()
+        return jsonify({'success': True, 'message': '开始发送Gcode'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 

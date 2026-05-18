@@ -225,8 +225,12 @@
                         <div class="preview-section">
                             <img id="lookup-annotated" alt="标注结果">
                         </div>
-                        <a id="lookup-download" class="btn btn-success" download>下载Gcode</a>
-                        <p class="hint-text hint-top-margin">下载Gcode后，请使用写字机控制软件（如FluidNC）运行此文件，写字机将在试卷上书写生词的音标和释义。</p>
+                        <div class="btn-row">
+                            <a id="lookup-download" class="btn btn-success" download>下载Gcode</a>
+                            <button class="btn btn-primary" onclick="serialSendFile('lookup-gcode-file')">直接发送到写字机</button>
+                        </div>
+                        <input type="hidden" id="lookup-gcode-file" value="">
+                        <p class="hint-text hint-top-margin">写字机将在试卷上书写生词的音标和释义。</p>
                     </div>
                 </div>
 
@@ -295,6 +299,26 @@
             <!-- ==================== Tab 3: 工具 ==================== -->
             <section id="tab-tools" class="tab-content">
 
+                <!-- 写字机连接 -->
+                <div class="card">
+                    <h2>🔌 写字机连接</h2>
+                    <div class="btn-row serial-controls">
+                        <select id="serial-port" class="serial-select">
+                            <option value="">选择串口...</option>
+                        </select>
+                        <button class="btn btn-primary btn-small" id="btn-serial-refresh" onclick="serialRefreshPorts()">刷新</button>
+                        <button class="btn btn-primary btn-small" id="btn-serial-connect" onclick="serialConnect()">连接</button>
+                        <button class="btn btn-danger btn-small hidden" id="btn-serial-disconnect" onclick="serialDisconnect()">断开</button>
+                        <span id="serial-status" class="hint-text"></span>
+                    </div>
+                    <div id="serial-progress-bar" class="hidden">
+                        <div class="word-card-progress-bar">
+                            <div class="word-card-progress-fill" id="serial-progress-fill"></div>
+                        </div>
+                        <div class="hint-text" id="serial-progress-text"></div>
+                    </div>
+                </div>
+
                 <!-- 书写文字 -->
                 <div class="card">
                     <h2>✍️ 书写文字</h2>
@@ -315,7 +339,11 @@
                         <div class="preview-section">
                             <img id="write-preview" alt="预览图" class="preview-img">
                         </div>
-                        <a id="write-download" class="btn btn-success" download>下载Gcode</a>
+                        <div class="btn-row">
+                            <a id="write-download" class="btn btn-success" download>下载Gcode</a>
+                            <button class="btn btn-primary" id="write-send-btn" onclick="serialSendFile('write-gcode-file')">直接发送到写字机</button>
+                        </div>
+                        <input type="hidden" id="write-gcode-file" value="">
                     </div>
                 </div>
 

@@ -917,6 +917,7 @@ function autoLookup() {
         formData: fd,
         onSuccess(data) {
             showResultElement('lookup-result', 'lookup-annotated', data.annotated_url, 'lookup-download', data.gcode_url);
+            document.getElementById('lookup-gcode-file').value = data.gcode_file;
             showNotification('处理完成！', 'success');
         },
         onError(msg, data) {
@@ -963,6 +964,7 @@ function writeText() {
         json: { text, use_handright: document.getElementById('use-handright').checked },
         onSuccess(data) {
             showResultElement('write-result', 'write-preview', data.preview_url, 'write-download', data.download_url);
+            document.getElementById('write-gcode-file').value = data.gcode_file;
             showNotification('书写代码生成成功！', 'success');
         }
     });
@@ -1207,6 +1209,119 @@ function updateLastPositionInfo() {
         }
     } else {
         infoDiv.innerHTML = '暂无保存的位置配置';
+    }
+}
+
+// ==================== 串口通信（直接发送Gcode） ====================
+
+let serialPollTimer = null;
+
+async function serialRefreshPorts() {
+    try {
+        const resp = await fetch(API_BASE + '/api/serial/ports');
+        const data = await resp.json();
+        const sel = document.getElementById('serial-port');
+        sel.innerHTML = '<option value="">选择串口...</option>';
+        if (data.success && data.ports) {
+            data.ports.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.port;
+                opt.textContent = `${p.port} - ${p.desc}`;
+                sel.appendChild(opt);
+            });
+            if (data.ports.length === 0) {
+                showNotification('未检测到串口设备', 'info');
+            }
+        }
+    } catch {
+        showNotification('获取串口列表失败', 'error');
+    }
+}
+
+function serialConnect() {
+    const port = document.getElementById('serial-port').value;
+    if (!port) return showNotification('请先选择串口', 'error');
+    apiRequest({
+        url: '/api/serial/connect',
+        json: { port },
+        onSuccess() {
+            showNotification('写字机已连接', 'success');
+            updateSerialUI(true, port);
+            startSerialPoll();
+        }
+    });
+}
+
+function serialDisconnect() {
+    apiRequest({
+        url: '/api/serial/disconnect',
+        onSuccess() {
+            showNotification('已断开连接', 'info');
+            updateSerialUI(false);
+            stopSerialPoll();
+        }
+    });
+}
+
+function updateSerialUI(connected, port) {
+    const connectBtn = document.getElementById('btn-serial-connect');
+    const disconnectBtn = document.getElementById('btn-serial-disconnect');
+    const statusEl = document.getElementById('serial-status');
+    if (connected) {
+        connectBtn.classList.add('hidden');
+        disconnectBtn.classList.remove('hidden');
+        statusEl.textContent = `已连接: ${port}`;
+    } else {
+        connectBtn.classList.remove('hidden');
+        disconnectBtn.classList.add('hidden');
+        statusEl.textContent = '';
+    }
+}
+
+function serialSendFile(hiddenInputId) {
+    const file = document.getElementById(hiddenInputId).value;
+    if (!file) return showNotification('没有可发送的Gcode文件', 'error');
+    apiRequest({
+        url: '/api/serial/send',
+        json: { file },
+        onSuccess() {
+            showNotification('开始发送Gcode到写字机', 'success');
+            startSerialPoll();
+        }
+    });
+}
+
+function startSerialPoll() {
+    stopSerialPoll();
+    serialPollTimer = setInterval(async () => {
+        try {
+            const resp = await fetch(API_BASE + '/api/serial/status');
+            const data = await resp.json();
+            if (data.connected) {
+                updateSerialUI(true, data.port);
+            } else {
+                updateSerialUI(false);
+            }
+            if (data.sending) {
+                const pct = data.total > 0 ? (data.progress / data.total * 100) : 0;
+                document.getElementById('serial-progress-fill').style.width = pct + '%';
+                document.getElementById('serial-progress-text').textContent = data.message;
+                show('serial-progress-bar');
+            } else {
+                if (data.message && data.message.includes('完成')) {
+                    document.getElementById('serial-progress-text').textContent = data.message;
+                    setTimeout(() => { hide('serial-progress-bar'); }, 3000);
+                }
+                if (!data.sending) stopSerialPoll();
+            }
+        } catch {}
+    }, 1000);
+}
+
+function stopSerialPoll() {
+    if (serialPollTimer) {
+        clearInterval(serialPollTimer);
+        serialPollTimer = null;
     }
 }
 

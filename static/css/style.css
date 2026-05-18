@@ -1077,6 +1077,20 @@ body {
     border-radius: 3px;
 }
 
+.serial-controls {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.serial-select {
+    padding: 8px 12px;
+    border: 1px solid #d9d9d9;
+    border-radius: 6px;
+    font-size: 1em;
+    min-width: 250px;
+    background: white;
+}
+
 .spinner-container {
     margin: 20px 0;
 }
