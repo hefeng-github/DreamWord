@@ -57,6 +57,10 @@ coverage.xml
 .DS_Store
 Thumbs.db
 
+# OneDrive token
+onedrive_token.json
+backup_meta.json
+
 # Testing
 .pytest_cache/
 .mypy_cache/

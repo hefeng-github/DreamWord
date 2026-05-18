@@ -8,31 +8,285 @@
 </head>
 <body>
     <div class="container">
-        <!-- 头部 -->
         <header class="header">
-            <h1>🤖 智能写字机控制系统</h1>
+            <h1>智能写字机控制系统</h1>
             <p class="subtitle">自动查单词 • 智能抄写 • 精确书写</p>
         </header>
 
-        <!-- 导航标签 -->
         <nav class="tabs">
-            <button class="tab-button active" onclick="showTab('write', event)">✍️ 书写文字</button>
-            <button class="tab-button" onclick="showTab('word-preview', event)">🔍 查词预览</button>
-            <button class="tab-button" onclick="showTab('auto-lookup', event)">📚 自动查词</button>
-            <button class="tab-button" onclick="showTab('auto-copy', event)">📝 自动抄写</button>
-            <button class="tab-button" onclick="showTab('import-words', event)">📥 导入单词</button>
-            <button class="tab-button" onclick="showTab('calibration', event)">📐 校准</button>
-            <button class="tab-button" onclick="showTab('markers', event)">🏷️ 生成标记</button>
-            <a href="/printer-config" class="tab-button" style="display: inline-flex; align-items: center; justify-content: center;">🖨️ 打印机配置</a>
+            <button class="tab-button active" onclick="showTab('record', event)">📸 录词</button>
+            <button class="tab-button" onclick="showTab('lookup', event)">🔍 查词</button>
+            <button class="tab-button" onclick="showTab('tools', event)">⚙️ 工具</button>
         </nav>
 
-        <!-- 主要内容区 -->
         <main class="main-content">
 
-            <!-- 书写文字 -->
-            <section id="tab-write" class="tab-content active">
+            <!-- ==================== Tab 1: 录词 ==================== -->
+            <section id="tab-record" class="tab-content active">
+
+                <!-- 拍照点词 -->
                 <div class="card">
-                    <h2>书写文字</h2>
+                    <h2>📸 拍照点词</h2>
+                    <div class="alert alert-info">
+                        <strong>使用方法：</strong>拍照或上传图片，系统自动识别英文单词，点击单词即可标记为「已会词」。
+                    </div>
+                    <div class="form-group">
+                        <label>上传图片或拍照：</label>
+                        <input type="file" id="tap-image" accept="image/*" onchange="previewImage(this, 'tap-preview-img')">
+                        <div class="camera-section">
+                            <button type="button" class="camera-button" onclick="startCamera('tap')">📱 使用本机摄像头</button>
+                            <div class="camera-video-container hidden" id="tap-camera-container">
+                                <video id="tap-video" class="camera-video" autoplay playsinline></video>
+                                <canvas id="tap-canvas" class="camera-canvas"></canvas>
+                                <div class="camera-controls">
+                                    <button type="button" class="camera-capture-btn" onclick="capturePhoto('tap')">📸 拍照</button>
+                                    <button type="button" class="camera-stop-btn" onclick="stopCamera('tap')">❌ 关闭摄像头</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="startOcrTap()">开始识别</button>
+                    <span id="tap-status" class="hint-text" style="margin-left:15px;"></span>
+
+                    <div id="tap-workspace" class="hidden">
+                        <div class="tap-canvas-wrapper">
+                            <canvas id="tap-display-canvas"></canvas>
+                        </div>
+                        <div class="tap-info-bar">
+                            <span id="tap-marked-count">已标记 0 个已会词</span>
+                            <button class="btn btn-primary btn-small" onclick="submitTapWords()">提交到数据库</button>
+                            <button class="btn btn-secondary btn-small" onclick="clearTapMarks()">清除标记</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 批量导入（折叠） -->
+                <div class="card collapsible-card">
+                    <div class="collapsible-header" onclick="toggleCollapse(this)">
+                        <h2>📥 批量导入单词</h2>
+                        <span class="collapsible-arrow">▶</span>
+                    </div>
+                    <div class="collapsible-body hidden">
+                        <div class="alert alert-info">
+                            <strong>功能说明：</strong>从有道单词本JSON文件导入单词。
+                            JSON文件来源：<a href="https://github.com/kajweb/dict" target="_blank">https://github.com/kajweb/dict</a>
+                        </div>
+
+                        <div id="import-step-1">
+                            <div class="form-group">
+                                <label for="word-json-file">上传单词JSON文件：</label>
+                                <input type="file" id="word-json-file" accept=".json" onchange="uploadWordJSON()">
+                            </div>
+                        </div>
+
+                        <div id="import-step-2" class="hidden">
+                            <div class="mode-toggle">
+                                <button class="mode-toggle-btn active" id="mode-list-btn" onclick="switchImportMode('list')">列表模式</button>
+                                <button class="mode-toggle-btn" id="mode-card-btn" onclick="switchImportMode('card')">卡片模式</button>
+                            </div>
+
+                            <div id="import-mode-list">
+                                <div class="form-group">
+                                    <label>单词列表（勾选表示已掌握，将加入数据库）：</label>
+                                    <div class="word-list-controls">
+                                        <button class="btn btn-small" onclick="selectAllWords()">全选</button>
+                                        <button class="btn btn-small" onclick="deselectAllWords()">取消全选</button>
+                                        <button class="btn btn-small" onclick="invertSelection()">反选</button>
+                                        <span id="selected-count">已选择: 0</span>
+                                    </div>
+                                    <div id="word-list" class="word-list"></div>
+                                </div>
+                                <button class="btn btn-success" onclick="addSelectedWords()">添加选中的单词到数据库</button>
+                                <button class="btn btn-secondary" onclick="resetImport()">重新上传</button>
+                            </div>
+
+                            <div id="import-mode-card" class="hidden">
+                                <div class="word-card-container">
+                                    <div class="word-card">
+                                        <div class="word-card-current" id="current-word">加载中...</div>
+                                        <div class="word-card-actions">
+                                            <button class="word-card-btn unknown" onclick="markWord('unknown')">
+                                                不认识
+                                                <span class="word-card-key-hint">← 或 A</span>
+                                            </button>
+                                            <button class="word-card-btn known" onclick="markWord('known')">
+                                                认识
+                                                <span class="word-card-key-hint">→ 或 D</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="word-card-progress">
+                                        <div class="word-card-progress-text" id="progress-text">进度: 0 / 0</div>
+                                        <div class="word-card-progress-bar">
+                                            <div class="word-card-progress-fill" id="progress-fill"></div>
+                                        </div>
+                                    </div>
+                                    <div class="word-card-tip">💡 提示：使用键盘方向键或 A/D 键快速标记</div>
+                                </div>
+                                <div class="text-center">
+                                    <button class="btn btn-secondary" onclick="resetImport()">退出卡片模式</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="import-result" class="result hidden"></div>
+                    </div>
+                </div>
+
+                <!-- 已会词管理（折叠） -->
+                <div class="card collapsible-card">
+                    <div class="collapsible-header" onclick="toggleCollapse(this)">
+                        <h2>📚 已会词管理</h2>
+                        <span class="collapsible-arrow">▶</span>
+                    </div>
+                    <div class="collapsible-body hidden">
+                        <div class="form-group">
+                            <div class="input-row">
+                                <input type="text" id="known-words-search" class="flex-input" placeholder="搜索单词..." oninput="filterKnownWords()">
+                                <button class="btn btn-primary btn-small" onclick="loadKnownWords()">刷新列表</button>
+                            </div>
+                        </div>
+                        <div id="known-words-stats" class="hint-text"></div>
+                        <div id="known-words-list" class="known-words-list"></div>
+
+                        <hr class="section-divider">
+
+                        <h3>☁️ OneDrive 备份</h3>
+                        <div id="onedrive-status" class="hint-text"></div>
+                        <div class="btn-row">
+                            <button class="btn btn-primary btn-small" onclick="onedriveConnect()" id="btn-onedrive-connect">连接OneDrive</button>
+                            <button class="btn btn-primary btn-small hidden" onclick="onedriveBackup()" id="btn-onedrive-backup">备份到OneDrive</button>
+                            <button class="btn btn-secondary btn-small hidden" onclick="onedriveListBackups()" id="btn-onedrive-list">查看备份</button>
+                            <button class="btn btn-danger btn-small hidden" onclick="onedriveDisconnect()" id="btn-onedrive-disconnect">断开连接</button>
+                        </div>
+                        <div id="onedrive-backup-list" class="hidden"></div>
+
+                        <div id="onedrive-auth-modal" class="modal hidden">
+                            <div class="modal-content">
+                                <h3>OneDrive 授权</h3>
+                                <p id="onedrive-auth-instructions"></p>
+                                <div class="spinner-container hidden" id="onedrive-polling-spinner">
+                                    <div class="spinner"></div>
+                                    <p>等待授权中...</p>
+                                </div>
+                                <button class="btn btn-secondary" onclick="closeOnedriveAuth()">取消</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- ==================== Tab 2: 查词 ==================== -->
+            <section id="tab-lookup" class="tab-content">
+
+                <!-- 手动查词 -->
+                <div class="card">
+                    <h2>🔍 单词查询</h2>
+                    <div class="form-group">
+                        <label for="preview-word-input">输入单词：</label>
+                        <div class="input-row">
+                            <input type="text" id="preview-word-input"
+                                   class="flex-input"
+                                   placeholder="输入要查询的单词..."
+                                   oninput="debounceLookup()">
+                            <button class="btn btn-primary" onclick="lookupWord()">查询</button>
+                        </div>
+                    </div>
+
+                    <div id="word-preview-result" class="hidden">
+                        <div class="word-preview-card">
+                            <div class="word-preview-header">
+                                <h3 id="preview-word" class="preview-word-title"></h3>
+                                <span id="preview-phonetic" class="preview-phonetic"></span>
+                                <span id="preview-pos" class="preview-pos-badge"></span>
+                            </div>
+
+                            <div id="preview-definitions-section" class="preview-section-block">
+                                <h4 class="preview-section-title">释义</h4>
+                                <ul id="preview-definitions" class="preview-list"></ul>
+                            </div>
+
+                            <div id="preview-examples-section" class="preview-section-block hidden">
+                                <h4 class="preview-section-title">例句</h4>
+                                <ul id="preview-examples" class="preview-list preview-list-italic"></ul>
+                            </div>
+
+                            <div id="preview-base-form-section" class="preview-section-block hidden">
+                                <h4 class="preview-section-title">词形</h4>
+                                <p id="preview-base-form" class="preview-base-form-text"></p>
+                            </div>
+
+                            <div id="preview-all-entries-section" class="preview-section-block hidden">
+                                <h4 class="preview-section-title">所有词条</h4>
+                                <div id="preview-all-entries" class="preview-all-entries"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="word-preview-no-result" class="hidden preview-empty">
+                        <p class="preview-empty-title">未找到该单词</p>
+                        <p class="preview-empty-hint">请检查拼写或尝试其他单词</p>
+                    </div>
+
+                    <div id="word-preview-loading" class="hidden preview-loading">
+                        <div class="spinner"></div>
+                        <p class="preview-loading-text">查询中...</p>
+                    </div>
+                </div>
+
+                <!-- 拍照查词（折叠） -->
+                <div class="card collapsible-card">
+                    <div class="collapsible-header" onclick="toggleCollapse(this)">
+                        <h2>📚 拍照自动查词</h2>
+                        <span class="collapsible-arrow">▶</span>
+                    </div>
+                    <div class="collapsible-body hidden">
+                        <div class="alert alert-info">
+                            <strong>功能说明：</strong>上传试卷图片，自动识别英文单词并查出生词释义。
+                        </div>
+                        <div class="form-group">
+                            <label for="lookup-image">上传试卷图片：</label>
+                            <input type="file" id="lookup-image" accept="image/*" onchange="previewImage(this, 'lookup-preview')">
+                            <div class="camera-section">
+                                <button type="button" class="camera-button" onclick="startCamera('lookup')">📱 使用本机摄像头</button>
+                                <div class="camera-video-container hidden" id="lookup-camera-container">
+                                    <video id="lookup-video" class="camera-video" autoplay playsinline></video>
+                                    <canvas id="lookup-canvas" class="camera-canvas"></canvas>
+                                    <div class="camera-controls">
+                                        <button type="button" class="camera-capture-btn" onclick="capturePhoto('lookup')">📸 拍照</button>
+                                        <button type="button" class="camera-stop-btn" onclick="stopCamera('lookup')">❌ 关闭摄像头</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="preview-section">
+                                <img id="lookup-preview" alt="图片预览">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="known-words-input">已知单词（逗号分隔）：</label>
+                            <input type="text" id="known-words-input" placeholder="hello,world,test">
+                        </div>
+                        <button class="btn btn-primary" onclick="autoLookup()">开始处理</button>
+
+                        <div id="lookup-result" class="result hidden">
+                            <h3>处理结果</h3>
+                            <div class="preview-section">
+                                <img id="lookup-annotated" alt="标注结果">
+                            </div>
+                            <a id="lookup-download" class="btn btn-success" download>下载Gcode</a>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- ==================== Tab 3: 工具 ==================== -->
+            <section id="tab-tools" class="tab-content">
+
+                <!-- 书写文字 -->
+                <div class="card">
+                    <h2>✍️ 书写文字</h2>
                     <div class="form-group">
                         <label for="write-text">要书写的文字：</label>
                         <textarea id="write-text" rows="4" placeholder="输入要书写的文字...">Hello World</textarea>
@@ -45,459 +299,212 @@
                     </div>
                     <button class="btn btn-primary" onclick="writeText()">生成书写代码</button>
 
-                    <div id="write-result" class="result" style="display: none;">
+                    <div id="write-result" class="result hidden">
                         <h3>生成结果</h3>
                         <div class="preview-section">
-                            <img id="write-preview" alt="预览图" style="max-width: 100%;">
+                            <img id="write-preview" alt="预览图" class="preview-img">
                         </div>
                         <a id="write-download" class="btn btn-success" download>下载Gcode</a>
                     </div>
                 </div>
-            </section>
 
-            <!-- 查词预览 -->
-            <section id="tab-word-preview" class="tab-content">
-                <div class="card">
-                    <h2>🔍 单词查询预览</h2>
-                    <div class="alert alert-info">
-                        <strong>功能说明：</strong>
-                        <p>输入单词即可实时查看释义、音标、例句等详细信息。</p>
+                <!-- 自动抄写（折叠） -->
+                <div class="card collapsible-card">
+                    <div class="collapsible-header" onclick="toggleCollapse(this)">
+                        <h2>📝 自动抄写</h2>
+                        <span class="collapsible-arrow">▶</span>
                     </div>
-
-                    <div class="form-group">
-                        <label for="preview-word-input">输入单词：</label>
-                        <div style="display: flex; gap: 10px;">
-                            <input type="text" id="preview-word-input"
-                                   placeholder="输入要查询的单词..."
-                                   style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;"
-                                   oninput="debounceLookup()">
-                            <button class="btn btn-primary" onclick="lookupWord()">查询</button>
-                        </div>
-                    </div>
-
-                    <!-- 查询结果 -->
-                    <div id="word-preview-result" style="display: none;">
-                        <div class="word-preview-card">
-                            <!-- 单词标题 -->
-                            <div class="word-preview-header">
-                                <h3 id="preview-word" style="font-size: 2em; margin: 0; color: #2c3e50;"></h3>
-                                <span id="preview-phonetic" style="font-size: 1.2em; color: #7f8c8d; margin-left: 15px;"></span>
-                                <span id="preview-pos" style="font-size: 1em; color: #95a5a6; margin-left: 10px; background: #ecf0f1; padding: 2px 8px; border-radius: 3px;"></span>
-                            </div>
-
-                            <!-- 释义 -->
-                            <div id="preview-definitions-section" style="margin-top: 20px;">
-                                <h4 style="color: #34495e; margin-bottom: 10px;">📖 释义</h4>
-                                <ul id="preview-definitions" style="line-height: 1.8; padding-left: 20px;"></ul>
-                            </div>
-
-                            <!-- 例句 -->
-                            <div id="preview-examples-section" style="margin-top: 20px; display: none;">
-                                <h4 style="color: #34495e; margin-bottom: 10px;">💡 例句</h4>
-                                <ul id="preview-examples" style="line-height: 1.8; padding-left: 20px; font-style: italic;"></ul>
-                            </div>
-
-                            <!-- 词根信息 -->
-                            <div id="preview-base-form-section" style="margin-top: 20px; display: none;">
-                                <h4 style="color: #34495e; margin-bottom: 10px;">🔤 词形</h4>
-                                <p id="preview-base-form" style="color: #7f8c8d;"></p>
-                            </div>
-
-                            <!-- 所有词条 -->
-                            <div id="preview-all-entries-section" style="margin-top: 20px; display: none;">
-                                <h4 style="color: #34495e; margin-bottom: 10px;">📚 所有词条</h4>
-                                <div id="preview-all-entries" style="max-height: 300px; overflow-y: auto; border: 1px solid #ecf0f1; padding: 10px; border-radius: 4px;"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 无结果提示 -->
-                    <div id="word-preview-no-result" style="display: none; text-align: center; padding: 40px; color: #95a5a6;">
-                        <p style="font-size: 1.2em;">😕 未找到该单词</p>
-                        <p style="margin-top: 10px;">请检查拼写或尝试其他单词</p>
-                    </div>
-
-                    <!-- 加载提示 -->
-                    <div id="word-preview-loading" style="display: none; text-align: center; padding: 40px;">
-                        <div class="spinner" style="margin: 0 auto 20px;"></div>
-                        <p style="color: #7f8c8d;">查询中...</p>
-                    </div>
-                </div>
-            </section>
-
-            <!-- 自动查单词 -->
-            <section id="tab-auto-lookup" class="tab-content">
-                <div class="card">
-                    <h2>自动查单词</h2>
-                    <div class="form-group">
-                        <label for="lookup-image">上传试卷图片：</label>
-                        <input type="file" id="lookup-image" accept="image/*" onchange="previewImage(this, 'lookup-preview')">
-                        <div class="camera-section">
-                            <button type="button" class="camera-button" onclick="startCamera('lookup')">
-                                📱 使用本机摄像头
-                            </button>
-                            <div class="camera-video-container" id="lookup-camera-container" style="display: none;">
-                                <video id="lookup-video" class="camera-video" autoplay playsinline></video>
-                                <canvas id="lookup-canvas" class="camera-canvas"></canvas>
-                                <div class="camera-controls">
-                                    <button type="button" class="camera-capture-btn" onclick="capturePhoto('lookup')">
-                                        📸 拍照
-                                    </button>
-                                    <button type="button" class="camera-stop-btn" onclick="stopCamera('lookup')">
-                                        ❌ 关闭摄像头
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="preview-section">
-                            <img id="lookup-preview" alt="图片预览">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="known-words">已知单词（逗号分隔）：</label>
-                        <input type="text" id="known-words" placeholder="hello,world,test">
-                    </div>
-                    <button class="btn btn-primary" onclick="autoLookup()">开始处理</button>
-
-                    <div id="lookup-result" class="result" style="display: none;">
-                        <h3>处理结果</h3>
-                        <div class="preview-section">
-                            <img id="lookup-annotated" alt="标注结果">
-                        </div>
-                        <a id="lookup-download" class="btn btn-success" download>下载Gcode</a>
-                    </div>
-                </div>
-            </section>
-
-            <!-- 自动抄写 -->
-            <section id="tab-auto-copy" class="tab-content">
-                <div class="card">
-                    <h2>自动抄写</h2>
-                    <div class="form-group">
-                        <label for="copy-image">上传横线本图片：</label>
-                        <input type="file" id="copy-image" accept="image/*" onchange="previewImage(this, 'copy-preview')">
-                        <div class="camera-section">
-                            <button type="button" class="camera-button" onclick="startCamera('copy')">
-                                📱 使用本机摄像头
-                            </button>
-                            <div class="camera-video-container" id="copy-camera-container" style="display: none;">
-                                <video id="copy-video" class="camera-video" autoplay playsinline></video>
-                                <canvas id="copy-canvas" class="camera-canvas"></canvas>
-                                <div class="camera-controls">
-                                    <button type="button" class="camera-capture-btn" onclick="capturePhoto('copy')">
-                                        📸 拍照
-                                    </button>
-                                    <button type="button" class="camera-stop-btn" onclick="stopCamera('copy')">
-                                        ❌ 关闭摄像头
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="preview-section">
-                            <img id="copy-preview" alt="图片预览">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="copy-text">要抄写的文字：</label>
-                        <textarea id="copy-text" rows="4" placeholder="输入要抄写的文字..."></textarea>
-                    </div>
-                    <button class="btn btn-primary" onclick="autoCopy()">开始处理</button>
-
-                    <div id="copy-result" class="result" style="display: none;">
-                        <h3>处理结果</h3>
-                        <div class="preview-section">
-                            <img id="copy-layout" alt="布局预览">
-                        </div>
-                        <a id="copy-download" class="btn btn-success" download>下载Gcode</a>
-                    </div>
-                </div>
-            </section>
-
-            <!-- 校准 -->
-            <section id="tab-calibration" class="tab-content">
-                <div class="card">
-                    <h2>写字机校准</h2>
-                    <div class="alert alert-info">
-                        <strong>校准步骤：</strong>
-                        <ol>
-                            <li><strong>方法一（推荐）：</strong>点击"让写字机自动绘制标记"按钮，写字机会自动在工作区绘制ArUco标记</li>
-                            <li><strong>方法二：</strong>在"生成标记"页面生成并打印ArUco标记板，然后固定在写字机工作区</li>
-                            <li>上传包含标记的照片或使用摄像头拍照</li>
-                            <li>输入每个标记的物理位置（毫米）</li>
-                            <li>点击"开始校准"完成校准</li>
-                        </ol>
-                    </div>
-
-                    <!-- 标记位置设置模式 -->
-                    <div class="form-group">
-                        <h3>第一步：设置标记位置</h3>
-                        <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
-                            选择一种方式来设置4个ArUco标记的位置
-                        </p>
-
-                        <!-- 模式选择 -->
-                        <div class="mode-selection" style="margin-bottom: 20px;">
-                            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
-                                <button class="mode-btn active" id="mode-manual-btn" onclick="setMarkerPositionMode('manual')">
-                                    ✏️ 手动输入
-                                </button>
-                                <button class="mode-btn" id="mode-auto-btn" onclick="setMarkerPositionMode('auto')">
-                                    🤖 自动生成
-                                </button>
-                                <button class="mode-btn" id="mode-load-btn" onclick="setMarkerPositionMode('load')">
-                                    📂 导入上次
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- 手动输入模式 -->
-                        <div id="marker-position-manual" class="marker-position-mode">
-                            <p style="color: #666; font-size: 0.9em; margin-bottom: 10px;">
-                                手动输入每个标记的物理坐标（毫米）
-                            </p>
-                        </div>
-
-                        <!-- 自动生成模式 -->
-                        <div id="marker-position-auto" class="marker-position-mode" style="display: none;">
-                            <div class="alert alert-info" style="margin-bottom: 15px;">
-                                <strong>自动生成模式：</strong><br>
-                                根据工作区尺寸自动生成推荐的标记位置（四个角落）
-                            </div>
-                            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
-                                <button class="btn btn-primary" onclick="autoGeneratePositions()">
-                                    🎯 生成推荐位置
-                                </button>
-                                <button class="btn btn-secondary" onclick="saveCurrentPositions()">
-                                    💾 保存当前位置
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- 导入上次模式 -->
-                        <div id="marker-position-load" class="marker-position-mode" style="display: none;">
-                            <div class="alert alert-info" style="margin-bottom: 15px;">
-                                <strong>导入上次模式：</strong><br>
-                                加载上一次保存的标记位置配置
-                            </div>
-                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                                <button class="btn btn-primary" onclick="loadLastPositions()">
-                                    📂 导入上次位置
-                                </button>
-                                <button class="btn btn-danger" onclick="clearSavedPositions()">
-                                    🗑️ 清除保存的位置
-                                </button>
-                            </div>
-                            <div id="last-position-info" style="margin-top: 10px; color: #666; font-size: 0.9em;"></div>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="calib-image">上传校准照片：</label>
-                        <input type="file" id="calib-image" accept="image/*" onchange="previewImage(this, 'calib-preview')">
-                        <div class="camera-section">
-                            <button type="button" class="camera-button" onclick="startCamera('calib')">
-                                📱 使用本机摄像头
-                            </button>
-                            <div class="camera-video-container" id="calib-camera-container" style="display: none;">
-                                <video id="calib-video" class="camera-video" autoplay playsinline></video>
-                                <canvas id="calib-canvas" class="camera-canvas"></canvas>
-                                <div class="camera-controls">
-                                    <button type="button" class="camera-capture-btn" onclick="capturePhoto('calib')">
-                                        📸 拍照
-                                    </button>
-                                    <button type="button" class="camera-stop-btn" onclick="stopCamera('calib')">
-                                        ❌ 关闭摄像头
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="preview-section">
-                            <img id="calib-preview" alt="图片预览">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="marker-size">ArUco标记尺寸（毫米）：</label>
-                        <input type="number" id="marker-size" value="30" min="10" max="100">
-                    </div>
-                    <div class="form-group">
-                        <label>标记位置（毫米）：</label>
-                        <div id="marker-positions">
-                            <div class="marker-position-input">
-                                <label>标记 0:</label>
-                                <input type="number" class="marker-x" placeholder="X" value="10">
-                                <input type="number" class="marker-y" placeholder="Y" value="10">
-                            </div>
-                            <div class="marker-position-input">
-                                <label>标记 1:</label>
-                                <input type="number" class="marker-x" placeholder="X" value="207">
-                                <input type="number" class="marker-y" placeholder="Y" value="10">
-                            </div>
-                            <div class="marker-position-input">
-                                <label>标记 2:</label>
-                                <input type="number" class="marker-x" placeholder="X" value="207">
-                                <input type="number" class="marker-y" placeholder="Y" value="289">
-                            </div>
-                            <div class="marker-position-input">
-                                <label>标记 3:</label>
-                                <input type="number" class="marker-x" placeholder="X" value="10">
-                                <input type="number" class="marker-y" placeholder="Y" value="289">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 绘制标记按钮 -->
-                    <div class="form-group">
-                        <h3>第三步：让写字机绘制标记</h3>
-                        <button class="btn btn-primary" onclick="drawMarkers()">🤖 让写字机自动绘制标记</button>
-                    </div>
-
-                    <div id="draw-markers-result" class="result" style="display: none;">
-                        <h3>绘制结果</h3>
-                        <div class="preview-section">
-                            <img id="draw-markers-preview" alt="标记布局预览">
-                        </div>
-                        <a id="draw-markers-download" class="btn btn-success" download>下载Gcode</a>
-                        <p style="margin-top: 10px; color: #666; font-size: 0.9em;">
-                            ⚠️ 下载Gcode后，请使用写字机控制软件（如FluidNC）运行此文件
-                        </p>
-                    </div>
-
-                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #e8e8e8;">
-
-                    <h3>校准步骤（完成标记绘制后）</h3>
-                    <button class="btn btn-primary" onclick="calibrate()">开始校准</button>
-
-                    <div id="calib-result" class="result" style="display: none;"></div>
-                </div>
-            </section>
-
-            <!-- 导入单词 -->
-            <section id="tab-import-words" class="tab-content">
-                <div class="card">
-                    <h2>导入单词</h2>
-                    <div class="alert alert-info">
-                        <strong>功能说明：</strong>
-                        <p>从有道单词本JSON文件导入单词，选择不会的单词添加到数据库。</p>
-                        <p>JSON文件来源：<a href="https://github.com/kajweb/dict" target="_blank">https://github.com/kajweb/dict</a></p>
-                    </div>
-
-                    <!-- 步骤1: 上传文件 -->
-                    <div id="import-step-1">
+                    <div class="collapsible-body hidden">
                         <div class="form-group">
-                            <label for="word-json-file">上传单词JSON文件：</label>
-                            <input type="file" id="word-json-file" accept=".json" onchange="uploadWordJSON()">
-                        </div>
-                    </div>
-
-                    <!-- 步骤2: 选择单词模式 -->
-                    <div id="import-step-2" style="display: none;">
-                        <!-- 模式切换 -->
-                        <div class="mode-toggle">
-                            <button class="mode-toggle-btn active" id="mode-list-btn" onclick="switchImportMode('list')">列表模式</button>
-                            <button class="mode-toggle-btn" id="mode-card-btn" onclick="switchImportMode('card')">卡片模式</button>
-                        </div>
-
-                        <!-- 列表模式 -->
-                        <div id="import-mode-list">
-                            <div class="form-group">
-                                <label>单词列表（勾选表示已掌握，将加入数据库）：</label>
-                                <div class="word-list-controls">
-                                    <button class="btn btn-small" onclick="selectAllWords()">全选</button>
-                                    <button class="btn btn-small" onclick="deselectAllWords()">取消全选</button>
-                                    <button class="btn btn-small" onclick="invertSelection()">反选</button>
-                                    <span id="selected-count">已选择: 0</span>
-                                </div>
-                                <div id="word-list" class="word-list"></div>
-                            </div>
-                            <button class="btn btn-success" onclick="addSelectedWords()">添加选中的单词到数据库</button>
-                            <button class="btn btn-secondary" onclick="resetImport()">重新上传</button>
-                        </div>
-
-                        <!-- 卡片模式 -->
-                        <div id="import-mode-card" style="display: none;">
-                            <div class="word-card-container">
-                                <div class="word-card">
-                                    <div class="word-card-current" id="current-word">加载中...</div>
-                                    <div class="word-card-actions">
-                                        <button class="word-card-btn unknown" onclick="markWord('unknown')">
-                                            不认识
-                                            <span style="display: block; font-size: 0.7em; margin-top: 5px; opacity: 0.8;">
-                                                ← 或 A
-                                            </span>
-                                        </button>
-                                        <button class="word-card-btn known" onclick="markWord('known')">
-                                            认识
-                                            <span style="display: block; font-size: 0.7em; margin-top: 5px; opacity: 0.8;">
-                                                → 或 D
-                                            </span>
-                                        </button>
+                            <label for="copy-image">上传横线本图片：</label>
+                            <input type="file" id="copy-image" accept="image/*" onchange="previewImage(this, 'copy-preview')">
+                            <div class="camera-section">
+                                <button type="button" class="camera-button" onclick="startCamera('copy')">📱 使用本机摄像头</button>
+                                <div class="camera-video-container hidden" id="copy-camera-container">
+                                    <video id="copy-video" class="camera-video" autoplay playsinline></video>
+                                    <canvas id="copy-canvas" class="camera-canvas"></canvas>
+                                    <div class="camera-controls">
+                                        <button type="button" class="camera-capture-btn" onclick="capturePhoto('copy')">📸 拍照</button>
+                                        <button type="button" class="camera-stop-btn" onclick="stopCamera('copy')">❌ 关闭摄像头</button>
                                     </div>
                                 </div>
-                                <div class="word-card-progress">
-                                    <div class="word-card-progress-text" id="progress-text">进度: 0 / 0</div>
-                                    <div class="word-card-progress-bar">
-                                        <div class="word-card-progress-fill" id="progress-fill" style="width: 0%"></div>
+                            </div>
+                            <div class="preview-section">
+                                <img id="copy-preview" alt="图片预览">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="copy-text">要抄写的文字：</label>
+                            <textarea id="copy-text" rows="4" placeholder="输入要抄写的文字..."></textarea>
+                        </div>
+                        <button class="btn btn-primary" onclick="autoCopy()">开始处理</button>
+
+                        <div id="copy-result" class="result hidden">
+                            <h3>处理结果</h3>
+                            <div class="preview-section">
+                                <img id="copy-layout" alt="布局预览">
+                            </div>
+                            <a id="copy-download" class="btn btn-success" download>下载Gcode</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 校准与标记（折叠） -->
+                <div class="card collapsible-card">
+                    <div class="collapsible-header" onclick="toggleCollapse(this)">
+                        <h2>📐 校准与标记</h2>
+                        <span class="collapsible-arrow">▶</span>
+                    </div>
+                    <div class="collapsible-body hidden">
+                        <div class="alert alert-info">
+                            <strong>校准步骤：</strong>
+                            <ol>
+                                <li><strong>方法一（推荐）：</strong>点击"让写字机自动绘制标记"按钮</li>
+                                <li><strong>方法二：</strong>在下方"生成标记"区域生成并打印ArUco标记板</li>
+                                <li>上传包含标记的照片或使用摄像头拍照</li>
+                                <li>输入每个标记的物理位置（毫米）</li>
+                                <li>点击"开始校准"完成校准</li>
+                            </ol>
+                        </div>
+
+                        <div class="form-group">
+                            <h3>标记位置设置</h3>
+                            <div class="mode-selection">
+                                <div class="mode-btn-group">
+                                    <button class="mode-btn active" id="mode-manual-btn" onclick="setMarkerPositionMode('manual')">✏️ 手动输入</button>
+                                    <button class="mode-btn" id="mode-auto-btn" onclick="setMarkerPositionMode('auto')">🤖 自动生成</button>
+                                    <button class="mode-btn" id="mode-load-btn" onclick="setMarkerPositionMode('load')">📂 导入上次</button>
+                                </div>
+                            </div>
+
+                            <div id="marker-position-manual" class="marker-position-mode">
+                                <p class="hint-text">手动输入每个标记的物理坐标（毫米）</p>
+                            </div>
+
+                            <div id="marker-position-auto" class="marker-position-mode hidden">
+                                <div class="alert alert-info alert-compact">
+                                    <strong>自动生成模式：</strong>根据工作区尺寸自动生成推荐的标记位置（四个角落）
+                                </div>
+                                <div class="btn-row">
+                                    <button class="btn btn-primary" onclick="autoGeneratePositions()">🎯 生成推荐位置</button>
+                                    <button class="btn btn-secondary" onclick="saveCurrentPositions()">💾 保存当前位置</button>
+                                </div>
+                            </div>
+
+                            <div id="marker-position-load" class="marker-position-mode hidden">
+                                <div class="alert alert-info alert-compact">
+                                    <strong>导入上次模式：</strong>加载上一次保存的标记位置配置
+                                </div>
+                                <div class="btn-row">
+                                    <button class="btn btn-primary" onclick="loadLastPositions()">📂 导入上次位置</button>
+                                    <button class="btn btn-danger" onclick="clearSavedPositions()">🗑️ 清除保存的位置</button>
+                                </div>
+                                <div id="last-position-info" class="hint-text"></div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="calib-image">上传校准照片：</label>
+                            <input type="file" id="calib-image" accept="image/*" onchange="previewImage(this, 'calib-preview')">
+                            <div class="camera-section">
+                                <button type="button" class="camera-button" onclick="startCamera('calib')">📱 使用本机摄像头</button>
+                                <div class="camera-video-container hidden" id="calib-camera-container">
+                                    <video id="calib-video" class="camera-video" autoplay playsinline></video>
+                                    <canvas id="calib-canvas" class="camera-canvas"></canvas>
+                                    <div class="camera-controls">
+                                        <button type="button" class="camera-capture-btn" onclick="capturePhoto('calib')">📸 拍照</button>
+                                        <button type="button" class="camera-stop-btn" onclick="stopCamera('calib')">❌ 关闭摄像头</button>
                                     </div>
                                 </div>
-                                <div style="text-align: center; margin-top: 15px; color: #6c757d; font-size: 0.9em;">
-                                    💡 提示：使用键盘方向键或 A/D 键快速标记
+                            </div>
+                            <div class="preview-section">
+                                <img id="calib-preview" alt="图片预览">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="marker-size">ArUco标记尺寸（毫米）：</label>
+                            <input type="number" id="marker-size" value="30" min="10" max="100">
+                        </div>
+                        <div class="form-group">
+                            <label>标记位置（毫米）：</label>
+                            <div id="marker-positions">
+                                <div class="marker-position-input">
+                                    <label>标记 0:</label>
+                                    <input type="number" class="marker-x" placeholder="X" value="10">
+                                    <input type="number" class="marker-y" placeholder="Y" value="10">
+                                </div>
+                                <div class="marker-position-input">
+                                    <label>标记 1:</label>
+                                    <input type="number" class="marker-x" placeholder="X" value="207">
+                                    <input type="number" class="marker-y" placeholder="Y" value="10">
+                                </div>
+                                <div class="marker-position-input">
+                                    <label>标记 2:</label>
+                                    <input type="number" class="marker-x" placeholder="X" value="207">
+                                    <input type="number" class="marker-y" placeholder="Y" value="289">
+                                </div>
+                                <div class="marker-position-input">
+                                    <label>标记 3:</label>
+                                    <input type="number" class="marker-x" placeholder="X" value="10">
+                                    <input type="number" class="marker-y" placeholder="Y" value="289">
                                 </div>
                             </div>
-                            <div style="text-align: center; margin-top: 20px;">
-                                <button class="btn btn-secondary" onclick="resetImport()">退出卡片模式</button>
+                        </div>
+
+                        <div class="btn-row">
+                            <button class="btn btn-primary" onclick="drawMarkers()">🤖 让写字机自动绘制标记</button>
+                            <button class="btn btn-primary" onclick="calibrate()">开始校准</button>
+                        </div>
+
+                        <div id="draw-markers-result" class="result hidden">
+                            <h3>绘制结果</h3>
+                            <div class="preview-section">
+                                <img id="draw-markers-preview" alt="标记布局预览">
                             </div>
+                            <a id="draw-markers-download" class="btn btn-success" download>下载Gcode</a>
+                            <p class="hint-text hint-top-margin">⚠️ 下载Gcode后，请使用写字机控制软件（如FluidNC）运行此文件</p>
+                        </div>
+
+                        <div id="calib-result" class="result hidden"></div>
+
+                        <hr class="section-divider">
+
+                        <h3>生成ArUco标记板</h3>
+                        <div class="form-group">
+                            <label for="num-markers">标记数量：</label>
+                            <input type="number" id="num-markers" value="4" min="1" max="20">
+                        </div>
+                        <div class="form-group">
+                            <label for="marker-size-gen">标记大小（像素）：</label>
+                            <input type="number" id="marker-size-gen" value="200" min="50" max="1000">
+                        </div>
+                        <button class="btn btn-primary" onclick="generateMarkers()">生成标记板</button>
+
+                        <div id="markers-result" class="result hidden">
+                            <h3>生成结果</h3>
+                            <div class="preview-section">
+                                <img id="markers-preview" alt="ArUco标记板">
+                            </div>
+                            <a id="markers-download" class="btn btn-success" download>下载标记板</a>
                         </div>
                     </div>
-
-                    <!-- 结果显示 -->
-                    <div id="import-result" class="result" style="display: none;"></div>
                 </div>
-            </section>
 
-            <!-- 生成标记 -->
-            <section id="tab-markers" class="tab-content">
-                <div class="card">
-                    <h2>生成ArUco标记</h2>
-                    <div class="form-group">
-                        <label for="num-markers">标记数量：</label>
-                        <input type="number" id="num-markers" value="4" min="1" max="20">
-                    </div>
-                    <div class="form-group">
-                        <label for="marker-size-gen">标记大小（像素）：</label>
-                        <input type="number" id="marker-size-gen" value="200" min="50" max="1000">
-                    </div>
-                    <button class="btn btn-primary" onclick="generateMarkers()">生成标记板</button>
-
-                    <div id="markers-result" class="result" style="display: none;">
-                        <h3>生成结果</h3>
-                        <div class="preview-section">
-                            <img id="markers-preview" alt="ArUco标记板">
-                        </div>
-                        <a id="markers-download" class="btn btn-success" download>下载标记板</a>
-                    </div>
-                </div>
             </section>
 
         </main>
 
-        <!-- 页脚 -->
         <footer class="footer">
-            <p>智能写字机控制系统 v1.0 | 基于Flask & Python</p>
+            <p>智能写字机控制系统 v2.0 | 基于Flask & Python</p>
         </footer>
     </div>
 
-    <!-- 加载提示 -->
-    <div id="loading" class="loading" style="display: none;">
+    <div id="loading" class="loading hidden">
         <div class="spinner"></div>
         <p>处理中，请稍候...</p>
     </div>
 
-    <!-- 通知 -->
-    <div id="notification" class="notification" style="display: none;"></div>
-
-
-    <!-- 隐藏的输入框，用于存储目标输入框ID -->
-    <input type="hidden" id="target-input-id">
+    <div id="notification" class="notification hidden"></div>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

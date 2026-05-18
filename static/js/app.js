@@ -1,451 +1,343 @@
-// API基础URL
 const API_BASE = '';
 
-// 显示/隐藏标签页
-function showTab(tabName, event) {
-    // 隐藏所有标签内容
-    document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.remove('active');
-    });
+let activeController = null;
 
-    // 移除所有按钮的active类
-    document.querySelectorAll('.tab-button').forEach(button => {
-        button.classList.remove('active');
-    });
+function show(el) {
+    if (typeof el === 'string') el = document.getElementById(el);
+    if (el) el.classList.remove('hidden');
+}
 
-    // 显示选中的标签内容
-    document.getElementById(`tab-${tabName}`).classList.add('active');
+function hide(el) {
+    if (typeof el === 'string') el = document.getElementById(el);
+    if (el) el.classList.add('hidden');
+}
 
-    // 激活对应按钮
-    if (event && event.target) {
-        event.target.classList.add('active');
+async function apiRequest({ url, method = 'POST', json, formData, validate, onSuccess, onError }) {
+    if (activeController) {
+        activeController.abort();
+    }
+    activeController = new AbortController();
+    const signal = activeController.signal;
+
+    showLoading();
+
+    try {
+        const opts = { method, signal };
+        if (json) {
+            opts.headers = { 'Content-Type': 'application/json' };
+            opts.body = JSON.stringify(json);
+        } else if (formData) {
+            opts.body = formData;
+        }
+
+        const resp = await fetch(API_BASE + url, opts);
+        const data = await resp.json();
+
+        if (data.success) {
+            if (onSuccess) onSuccess(data);
+        } else {
+            const msg = data.error || '操作失败';
+            if (onError) {
+                onError(msg, data);
+            } else {
+                showNotification(msg, 'error');
+            }
+        }
+    } catch (error) {
+        if (error.name === 'AbortError') return;
+        const msg = '网络错误：' + error.message;
+        if (onError) {
+            onError(msg);
+        } else {
+            showNotification(msg, 'error');
+        }
+    } finally {
+        activeController = null;
+        hideLoading();
     }
 }
 
-// 显示/隐藏加载提示
+function showResultElement(resultId, previewId, previewSrc, downloadId, downloadHref) {
+    if (previewId && previewSrc) {
+        const preview = document.getElementById(previewId);
+        preview.src = previewSrc;
+        preview.classList.remove('hidden');
+        preview.style.display = 'inline-block';
+    }
+    if (downloadId && downloadHref) {
+        document.getElementById(downloadId).href = downloadHref;
+    }
+    show(resultId);
+}
+
+function showTab(tabName, event) {
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+    document.getElementById(`tab-${tabName}`).classList.add('active');
+    if (event?.target) event.target.classList.add('active');
+}
+
 function showLoading() {
-    document.getElementById('loading').style.display = 'flex';
+    const el = document.getElementById('loading');
+    el.classList.remove('hidden');
+    el.style.display = 'flex';
 }
 
 function hideLoading() {
-    document.getElementById('loading').style.display = 'none';
+    const el = document.getElementById('loading');
+    el.classList.add('hidden');
+    el.style.display = '';
 }
 
-// 显示通知
 function showNotification(message, type = 'info') {
-    const notification = document.getElementById('notification');
-    notification.textContent = message;
-    notification.className = `notification ${type}`;
-    notification.style.display = 'block';
-
-    setTimeout(() => {
-        notification.style.display = 'none';
-    }, 3000);
+    const n = document.getElementById('notification');
+    n.textContent = message;
+    n.className = `notification ${type}`;
+    n.classList.remove('hidden');
+    clearTimeout(n._timer);
+    n._timer = setTimeout(() => { n.classList.add('hidden'); }, 3000);
 }
 
-// 图片预览
 function previewImage(input, previewId) {
     const file = input.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const preview = document.getElementById(previewId);
-            preview.src = e.target.result;
-            preview.style.display = 'inline-block';
-        };
-        reader.readAsDataURL(file);
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        const preview = document.getElementById(previewId);
+        preview.src = e.target.result;
+        preview.classList.remove('hidden');
+        preview.style.display = 'inline-block';
+    };
+    reader.readAsDataURL(file);
+}
+
+function toggleCollapse(header) {
+    const body = header.nextElementSibling;
+    const arrow = header.querySelector('.collapsible-arrow');
+    const isHidden = body.classList.contains('hidden');
+    if (isHidden) {
+        body.classList.remove('hidden');
+        arrow.textContent = '▼';
+    } else {
+        body.classList.add('hidden');
+        arrow.textContent = '▶';
     }
 }
 
-// 生成ArUco标记
-async function generateMarkers() {
-    const numMarkers = document.getElementById('num-markers').value;
-    const markerSize = document.getElementById('marker-size-gen').value;
+// ==================== 拍照点词 ====================
 
-    showLoading();
+let tapWords = [];
+let tapMarkedWords = new Set();
+let tapImageSrc = null;
+let tapScale = 1;
+let tapDisplayCanvas = null;
+let tapDisplayCtx = null;
 
-    try {
-        const response = await fetch(`${API_BASE}/api/generate-markers`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                num_markers: parseInt(numMarkers),
-                marker_size: parseInt(markerSize)
-            })
-        });
+function startOcrTap() {
+    const imageInput = document.getElementById('tap-image');
+    if (!imageInput.files[0]) return showNotification('请先上传图片或拍照', 'error');
 
-        const data = await response.json();
+    document.getElementById('tap-status').textContent = '正在识别...';
 
-        if (data.success) {
-            // 显示预览
-            const preview = document.getElementById('markers-preview');
-            preview.src = data.download_url;
-            preview.style.display = 'inline-block';
+    const fd = new FormData();
+    fd.append('image', imageInput.files[0]);
 
-            // 设置下载链接
-            const downloadBtn = document.getElementById('markers-download');
-            downloadBtn.href = data.download_url;
-
-            // 显示结果
-            document.getElementById('markers-result').style.display = 'block';
-
-            showNotification('标记生成成功！', 'success');
-        } else {
-            showNotification(data.error || '生成失败', 'error');
+    apiRequest({
+        url: '/api/ocr-words',
+        formData: fd,
+        onSuccess(data) {
+            if (!data.words || data.words.length === 0) {
+                showNotification('未识别到英文单词', 'error');
+                document.getElementById('tap-status').textContent = '';
+                return;
+            }
+            tapWords = data.words;
+            tapMarkedWords = new Set();
+            tapImageSrc = null;
+            showNotification(`识别到 ${data.words.length} 个英文单词，点击单词标记为已会词`, 'success');
+            document.getElementById('tap-status').textContent = `识别到 ${data.words.length} 个单词`;
+            renderTapCanvas(imageInput.files[0]);
+        },
+        onError(msg) {
+            showNotification(msg, 'error');
+            document.getElementById('tap-status').textContent = '';
         }
-    } catch (error) {
-        showNotification('网络错误：' + error.message, 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-// 校准
-async function calibrate() {
-    const imageInput = document.getElementById('calib-image');
-    const markerSize = document.getElementById('marker-size').value;
-
-    if (!imageInput.files[0]) {
-        showNotification('请先上传校准照片', 'error');
-        return;
-    }
-
-    // 收集标记位置
-    const positionInputs = document.querySelectorAll('.marker-position-input');
-    const positions = {};
-
-    positionInputs.forEach((input, index) => {
-        const x = input.querySelector('.marker-x').value;
-        const y = input.querySelector('.marker-y').value;
-        positions[index] = { x: parseFloat(x), y: parseFloat(y) };
     });
-
-    showLoading();
-
-    const formData = new FormData();
-    formData.append('image', imageInput.files[0]);
-    formData.append('marker_size', markerSize);
-    formData.append('positions', JSON.stringify(positions));
-
-    try {
-        const response = await fetch(`${API_BASE}/api/calibrate`, {
-            method: 'POST',
-            body: formData
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            const resultDiv = document.getElementById('calib-result');
-            resultDiv.innerHTML = `
-                <div class="alert alert-success">
-                    <strong>校准成功！</strong><br>
-                    校准文件已保存，可以开始使用写字机了。
-                </div>
-            `;
-            resultDiv.style.display = 'block';
-
-            showNotification('校准成功！', 'success');
-        } else {
-            showNotification(data.error || '校准失败', 'error');
-        }
-    } catch (error) {
-        showNotification('网络错误：' + error.message, 'error');
-    } finally {
-        hideLoading();
-    }
 }
 
-// 书写文字
-async function writeText() {
-    const text = document.getElementById('write-text').value;
-    const useHandright = document.getElementById('use-handright').checked;
+function renderTapCanvas(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+            tapDisplayCanvas = document.getElementById('tap-display-canvas');
+            tapDisplayCtx = tapDisplayCanvas.getContext('2d');
 
-    if (!text.trim()) {
-        showNotification('请输入要书写的文字', 'error');
-        return;
-    }
+            const maxW = tapDisplayCanvas.parentElement.clientWidth || 800;
+            tapScale = Math.min(maxW / img.width, 1);
+            tapDisplayCanvas.width = img.width * tapScale;
+            tapDisplayCanvas.height = img.height * tapScale;
 
-    showLoading();
-
-    try {
-        const response = await fetch(`${API_BASE}/api/write`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                text: text,
-                use_handright: useHandright
-            })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            // 显示预览
-            const preview = document.getElementById('write-preview');
-            preview.src = data.preview_url;
-            preview.style.display = 'inline-block';
-
-            // 设置下载链接
-            const downloadBtn = document.getElementById('write-download');
-            downloadBtn.href = data.download_url;
-
-            // 显示结果
-            document.getElementById('write-result').style.display = 'block';
-
-            showNotification('书写代码生成成功！', 'success');
-        } else {
-            showNotification(data.error || '生成失败', 'error');
-        }
-    } catch (error) {
-        showNotification('网络错误：' + error.message, 'error');
-    } finally {
-        hideLoading();
-    }
+            tapImageSrc = img;
+            drawTapCanvas();
+            show('tap-workspace');
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
 }
 
-// 自动查单词
-async function autoLookup() {
-    const imageInput = document.getElementById('lookup-image');
-    const knownWords = document.getElementById('known-words').value;
+function drawTapCanvas() {
+    if (!tapDisplayCtx || !tapImageSrc) return;
+    const ctx = tapDisplayCtx;
+    const canvas = tapDisplayCanvas;
+    const s = tapScale;
 
-    if (!imageInput.files[0]) {
-        showNotification('请先上传试卷图片', 'error');
-        return;
-    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(tapImageSrc, 0, 0, canvas.width, canvas.height);
 
-    showLoading();
+    for (const w of tapWords) {
+        const bbox = w.bbox;
+        if (!bbox || bbox.length < 4) continue;
 
-    const formData = new FormData();
-    formData.append('image', imageInput.files[0]);
-    formData.append('known_words', knownWords);
+        const x1 = bbox[0][0] * s;
+        const y1 = bbox[0][1] * s;
+        const x2 = bbox[2][0] * s;
+        const y2 = bbox[2][1] * s;
 
-    try {
-        const response = await fetch(`${API_BASE}/api/auto-lookup`, {
-            method: 'POST',
-            body: formData
-        });
+        const isMarked = tapMarkedWords.has(w.word.toLowerCase());
 
-        const data = await response.json();
+        ctx.fillStyle = isMarked ? 'rgba(76, 175, 80, 0.4)' : 'rgba(24, 144, 255, 0.2)';
+        ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
 
-        if (data.success) {
-            // 显示标注结果
-            const annotated = document.getElementById('lookup-annotated');
-            annotated.src = data.annotated_url;
-            annotated.style.display = 'inline-block';
+        ctx.strokeStyle = isMarked ? '#4caf50' : '#1890ff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
 
-            // 设置下载链接
-            const downloadBtn = document.getElementById('lookup-download');
-            downloadBtn.href = data.gcode_url;
+        ctx.fillStyle = isMarked ? '#2e7d32' : '#fff';
+        ctx.font = `bold ${Math.max(12, Math.min(16, (x2 - x1) / w.word.length))}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
 
-            // 显示结果
-            document.getElementById('lookup-result').style.display = 'block';
-
-            showNotification('处理完成！', 'success');
-        } else {
-            // 检查是否是模块未加载错误
-            if (data.error && data.error.includes('未加载')) {
-                showNotification(data.error, 'error');
-                console.error('自动查词模块不可用:', data.error);
-            } else {
-                showNotification(data.error || '处理失败', 'error');
-            }
+        if (isMarked) {
+            ctx.fillText('\u2713 ' + w.word, (x1 + x2) / 2, y1 - 2);
         }
-    } catch (error) {
-        showNotification('网络错误：' + error.message, 'error');
-    } finally {
-        hideLoading();
     }
+
+    document.getElementById('tap-marked-count').textContent = `已标记 ${tapMarkedWords.size} 个已会词`;
 }
 
-// 自动抄写
-async function autoCopy() {
-    const imageInput = document.getElementById('copy-image');
-    const text = document.getElementById('copy-text').value;
+document.addEventListener('click', function(e) {
+    if (!tapDisplayCanvas) return;
+    if (e.target !== tapDisplayCanvas) return;
 
-    if (!imageInput.files[0]) {
-        showNotification('请先上传横线本图片', 'error');
-        return;
-    }
+    const rect = tapDisplayCanvas.getBoundingClientRect();
+    const scaleX = tapDisplayCanvas.width / rect.width;
+    const scaleY = tapDisplayCanvas.height / rect.height;
+    const cx = (e.clientX - rect.left) * scaleX;
+    const cy = (e.clientY - rect.top) * scaleY;
+    const s = tapScale;
 
-    if (!text.trim()) {
-        showNotification('请输入要抄写的文字', 'error');
-        return;
-    }
+    let hit = null;
+    for (const w of tapWords) {
+        const bbox = w.bbox;
+        if (!bbox || bbox.length < 4) continue;
+        const x1 = bbox[0][0] * s;
+        const y1 = bbox[0][1] * s;
+        const x2 = bbox[2][0] * s;
+        const y2 = bbox[2][1] * s;
 
-    showLoading();
-
-    const formData = new FormData();
-    formData.append('image', imageInput.files[0]);
-    formData.append('text', text);
-
-    try {
-        const response = await fetch(`${API_BASE}/api/auto-copy`, {
-            method: 'POST',
-            body: formData
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            // 显示布局预览
-            const layout = document.getElementById('copy-layout');
-            layout.src = data.layout_url;
-            layout.style.display = 'inline-block';
-
-            // 设置下载链接
-            const downloadBtn = document.getElementById('copy-download');
-            downloadBtn.href = data.gcode_url;
-
-            // 显示结果
-            document.getElementById('copy-result').style.display = 'block';
-
-            showNotification('处理完成！', 'success');
-        } else {
-            // 检查是否是模块未加载错误
-            if (data.error && data.error.includes('未加载')) {
-                showNotification(data.error, 'error');
-                console.error('自动抄写模块不可用:', data.error);
-            } else {
-                showNotification(data.error || '处理失败', 'error');
-            }
+        if (cx >= x1 && cx <= x2 && cy >= y1 && cy <= y2) {
+            hit = w;
+            break;
         }
-    } catch (error) {
-        showNotification('网络错误：' + error.message, 'error');
-    } finally {
-        hideLoading();
     }
+
+    if (hit) {
+        const key = hit.word.toLowerCase();
+        if (tapMarkedWords.has(key)) {
+            tapMarkedWords.delete(key);
+        } else {
+            tapMarkedWords.add(key);
+        }
+        drawTapCanvas();
+    }
+});
+
+function submitTapWords() {
+    if (tapMarkedWords.size === 0) return showNotification('请先点击标记一些单词', 'error');
+    const words = Array.from(tapMarkedWords);
+    apiRequest({
+        url: '/api/add-known-words',
+        json: { words },
+        onSuccess(data) {
+            showNotification(`成功添加 ${data.added_count} 个已会词`, 'success');
+            document.getElementById('tap-status').textContent = `已提交 ${data.added_count} 个单词`;
+        }
+    });
 }
 
-// 导入单词相关变量
+function clearTapMarks() {
+    tapMarkedWords.clear();
+    drawTapCanvas();
+}
+
+// ==================== 批量导入 ====================
+
 let importedWords = [];
 let currentWordIndex = 0;
 let knownWordsInCard = [];
 let unknownWordsInCard = [];
-let importMode = 'list'; // 'list' 或 'card'
+let importMode = 'list';
+let cardTemplateHTML = null;
 
-// 上传并解析单词JSON文件
 async function uploadWordJSON() {
     const fileInput = document.getElementById('word-json-file');
-
-    if (!fileInput.files[0]) {
-        showNotification('请选择JSON文件', 'error');
-        return;
-    }
-
+    if (!fileInput.files[0]) return showNotification('请选择JSON文件', 'error');
     const file = fileInput.files[0];
-
-    // 检查文件类型
-    if (!file.name.endsWith('.json')) {
-        showNotification('请选择JSON文件', 'error');
-        return;
-    }
+    if (!file.name.endsWith('.json')) return showNotification('请选择JSON文件', 'error');
 
     showLoading();
 
     try {
-        // 读取文件
-        const text = await file.text();
+        const rawText = await file.text();
+        let text = rawText.replace(/^\ufeff/, '');
+        text = text.replace(/^\s*\/\/.*$/gm, '');
+        text = text.replace(/^\s*#.*$/gm, '');
+        text = text.replace(/,(\s*[}\]])/g, '$1');
 
-        // 预处理：移除BOM
-        let cleanedText = text.replace(/^\ufeff/, '');
-
-        // 预处理：移除注释（某些JSON文件可能有）
-        cleanedText = cleanedText.replace(/^\s*\/\/.*$/gm, '');
-        cleanedText = cleanedText.replace(/^\s*#.*$/gm, '');
-
-        // 预处理：移除尾部逗号（常见错误）
-        cleanedText = cleanedText.replace(/,(\s*[}\]])/g, '$1');
-
-        // 解析JSON（支持多种格式）
         let wordsData = [];
 
         try {
-            // 尝试1: 标准JSON数组
-            console.log('尝试解析为标准JSON数组...');
-            const parsed = JSON.parse(cleanedText);
+            const parsed = JSON.parse(text);
             wordsData = Array.isArray(parsed) ? parsed : [parsed];
-            console.log('✓ 标准JSON数组格式');
-        } catch (e) {
-            console.log('标准JSON解析失败，尝试JSON Lines格式...');
-
-            // 尝试2: JSON Lines格式（每行一个JSON对象）
-            try {
-                const lines = cleanedText.split('\n');
-                let parseCount = 0;
-                let errorCount = 0;
-
-                for (let i = 0; i < lines.length; i++) {
-                    const line = lines[i].trim();
-
-                    // 跳过空行和注释
-                    if (!line || line.startsWith('//') || line.startsWith('#')) {
-                        continue;
-                    }
-
-                    try {
-                        const obj = JSON.parse(line);
-                        if (obj.headWord) {
-                            wordsData.push(obj);
-                            parseCount++;
-                        }
-                    } catch (err) {
-                        errorCount++;
-                        if (errorCount <= 5) {
-                            console.warn(`第 ${i+1} 行解析失败:`, err);
-                        }
-                    }
-                }
-
-                if (wordsData.length > 0) {
-                    console.log(`✓ JSON Lines格式，成功解析 ${parseCount} 个单词`);
-                } else {
-                    throw new Error('未找到有效的JSON对象');
-                }
-            } catch (e2) {
-                console.log('JSON Lines格式也失败');
-                throw new Error('无法解析JSON文件，请确保文件格式正确');
+        } catch {
+            const lines = text.split('\n');
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
+                try {
+                    const obj = JSON.parse(trimmed);
+                    if (obj.headWord) wordsData.push(obj);
+                } catch {}
             }
+            if (wordsData.length === 0) throw new Error('无法解析JSON文件，请确保文件格式正确');
         }
 
-        // 提取单词信息
         importedWords = [];
-        let skippedCount = 0;
-
         for (const item of wordsData) {
             const word = item.headWord || '';
             const content = item.content?.word?.content;
-
-            if (!word) {
-                skippedCount++;
-                continue;
-            }
-
-            // 提取音标
-            const usphone = content?.usphone || '';
-            const ukphone = content?.ukphone || '';
-            const phonetic = usphone || ukphone || '';
-
-            // 提取释义
-            const trans = content?.trans || [];
-            const definitions = trans.map(t => t.tranCn || '').join('；');
-
-            // 提取例句
-            const sentences = content?.sentence?.sentences || [];
-            const examples = sentences.slice(0, 2).map(s => ({
-                en: s.sContent || '',
-                cn: s.sCn || ''
-            }));
+            if (!word) continue;
 
             importedWords.push({
-                word: word,
-                phonetic: phonetic,
-                definitions: definitions,
-                examples: examples
+                word,
+                phonetic: content?.usphone || content?.ukphone || '',
+                definitions: (content?.trans || []).map(t => t.tranCn || '').join('\uff1b'),
+                examples: (content?.sentence?.sentences || []).slice(0, 2).map(s => ({
+                    en: s.sContent || '',
+                    cn: s.sCn || ''
+                }))
             });
         }
 
@@ -454,50 +346,36 @@ async function uploadWordJSON() {
             return;
         }
 
-        console.log(`成功解析 ${importedWords.length} 个单词`);
-        if (skippedCount > 0) {
-            console.log(`跳过 ${skippedCount} 个无效条目`);
-        }
-
-        // 显示单词列表
         displayWordList();
-
-        // 切换到步骤2
-        document.getElementById('import-step-1').style.display = 'none';
-        document.getElementById('import-step-2').style.display = 'block';
-
+        hide('import-step-1');
+        show('import-step-2');
         showNotification(`成功导入 ${importedWords.length} 个单词`, 'success');
-
     } catch (error) {
         showNotification('JSON格式错误：' + error.message, 'error');
-        console.error('JSON解析错误:', error);
-        console.log('文件内容前500字符:', text.substring(0, 500));
-        console.log('建议：使用 python validate_json.py 检查文件格式');
     } finally {
         hideLoading();
     }
 }
 
-// 显示单词列表
 function displayWordList() {
-    const wordList = document.getElementById('word-list');
-    wordList.innerHTML = '';
+    const listEl = document.getElementById('word-list');
+    listEl.innerHTML = '';
 
+    const frag = document.createDocumentFragment();
     importedWords.forEach((item, index) => {
         const div = document.createElement('div');
         div.className = 'word-item';
-        div.id = `word-${index}`;
+        div.dataset.index = index;
 
-        // 构建例句HTML
         let examplesHtml = '';
-        if (item.examples && item.examples.length > 0) {
+        if (item.examples?.length) {
             examplesHtml = item.examples.map(ex =>
-                `<div class="word-item-example">${ex.en} ${ex.cn ? '- ' + ex.cn : ''}</div>`
+                `<div class="word-item-example">${ex.en}${ex.cn ? ' - ' + ex.cn : ''}</div>`
             ).join('');
         }
 
         div.innerHTML = `
-            <input type="checkbox" id="checkbox-${index}" onchange="updateWordSelection(${index})">
+            <input type="checkbox" data-word-index="${index}">
             <div class="word-item-content">
                 <div class="word-item-word">${item.word}</div>
                 ${item.phonetic ? `<div class="word-item-phonetic">${item.phonetic}</div>` : ''}
@@ -505,338 +383,162 @@ function displayWordList() {
                 ${examplesHtml}
             </div>
         `;
-
-        wordList.appendChild(div);
+        frag.appendChild(div);
     });
-
+    listEl.appendChild(frag);
     updateSelectedCount();
 }
 
-// 更新单词选择状态
 function updateWordSelection(index) {
-    const checkbox = document.getElementById(`checkbox-${index}`);
-    const wordItem = document.getElementById(`word-${index}`);
-
-    if (checkbox.checked) {
-        wordItem.classList.add('selected');
-    } else {
-        wordItem.classList.remove('selected');
-    }
-
+    const cb = document.querySelector(`[data-word-index="${index}"]`);
+    const item = cb?.closest('.word-item');
+    if (item) item.classList.toggle('selected', cb.checked);
     updateSelectedCount();
 }
 
-// 更新选中计数
 function updateSelectedCount() {
-    const checkboxes = document.querySelectorAll('.word-list input[type="checkbox"]');
-    const checked = Array.from(checkboxes).filter(cb => cb.checked).length;
-    document.getElementById('selected-count').textContent = `已选择: ${checked}`;
+    const count = document.querySelectorAll('#word-list input[type="checkbox"]:checked').length;
+    document.getElementById('selected-count').textContent = `已选择: ${count}`;
 }
 
-// 全选
-function selectAllWords() {
-    const checkboxes = document.querySelectorAll('.word-list input[type="checkbox"]');
-    checkboxes.forEach((cb, index) => {
-        cb.checked = true;
-        document.getElementById(`word-${index}`).classList.add('selected');
+function setAllCheckboxes(checked) {
+    document.querySelectorAll('#word-list input[type="checkbox"]').forEach(cb => {
+        cb.checked = checked;
+        cb.closest('.word-item').classList.toggle('selected', checked);
     });
     updateSelectedCount();
 }
 
-// 取消全选
-function deselectAllWords() {
-    const checkboxes = document.querySelectorAll('.word-list input[type="checkbox"]');
-    checkboxes.forEach((cb, index) => {
-        cb.checked = false;
-        document.getElementById(`word-${index}`).classList.remove('selected');
-    });
-    updateSelectedCount();
-}
+function selectAllWords() { setAllCheckboxes(true); }
+function deselectAllWords() { setAllCheckboxes(false); }
 
-// 反选
 function invertSelection() {
-    const checkboxes = document.querySelectorAll('.word-list input[type="checkbox"]');
-    checkboxes.forEach((cb, index) => {
+    document.querySelectorAll('#word-list input[type="checkbox"]').forEach(cb => {
         cb.checked = !cb.checked;
-        updateWordSelection(index);
+        cb.closest('.word-item').classList.toggle('selected', cb.checked);
     });
+    updateSelectedCount();
 }
 
-// 添加选中的单词到数据库
-async function addSelectedWords() {
-    const checkboxes = document.querySelectorAll('.word-list input[type="checkbox"]:checked');
-
-    if (checkboxes.length === 0) {
-        showNotification('请至少选择一个单词', 'error');
-        return;
+document.addEventListener('change', e => {
+    if (e.target.matches('#word-list input[type="checkbox"]')) {
+        const idx = parseInt(e.target.dataset.wordIndex);
+        updateWordSelection(idx);
     }
+});
 
-    showLoading();
-
-    // 收集选中的单词
-    const selectedWords = [];
-    checkboxes.forEach(cb => {
-        const index = parseInt(cb.id.replace('checkbox-', ''));
-        selectedWords.push(importedWords[index].word);
-    });
-
-    try {
-        const response = await fetch(`${API_BASE}/api/add-known-words`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                words: selectedWords
-            })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            const resultDiv = document.getElementById('import-result');
-            resultDiv.innerHTML = `
+function submitWords(words, resultDivId) {
+    apiRequest({
+        url: '/api/add-known-words',
+        json: { words },
+        onSuccess(data) {
+            const r = document.getElementById(resultDivId);
+            r.innerHTML = `
                 <div class="alert alert-success">
                     <strong>添加成功！</strong><br>
                     成功添加 ${data.added_count} 个单词到数据库。<br>
                     ${data.skipped_count > 0 ? `跳过 ${data.skipped_count} 个已存在的单词。` : ''}
                 </div>
             `;
-            resultDiv.style.display = 'block';
-
+            show(r);
             showNotification('添加成功！', 'success');
-        } else {
-            showNotification(data.error || '添加失败', 'error');
         }
-    } catch (error) {
-        showNotification('网络错误：' + error.message, 'error');
-    } finally {
-        hideLoading();
-    }
+    });
 }
 
-// 重置导入
-function resetImport() {
-    // 移除键盘监听
-    document.removeEventListener('keydown', handleCardKeyPress);
-
-    // 重置状态
-    importMode = 'list';
-    currentWordIndex = 0;
-    knownWordsInCard = [];
-    unknownWordsInCard = [];
-
-    // 重置UI
-    document.getElementById('import-step-1').style.display = 'block';
-    document.getElementById('import-step-2').style.display = 'none';
-    document.getElementById('import-result').style.display = 'none';
-    document.getElementById('import-mode-list').style.display = 'block';
-    document.getElementById('import-mode-card').style.display = 'none';
-    document.getElementById('mode-list-btn').classList.add('active');
-    document.getElementById('mode-card-btn').classList.remove('active');
-
-    // 重新创建卡片容器（恢复初始状态）
-    const cardContainer = document.querySelector('.word-card-container');
-    if (cardContainer) {
-        cardContainer.innerHTML = `
-            <div class="word-card">
-                <div class="word-card-current" id="current-word">加载中...</div>
-                <div class="word-card-actions">
-                    <button class="word-card-btn unknown" onclick="markWord('unknown')">
-                        不认识
-                        <span style="display: block; font-size: 0.7em; margin-top: 5px; opacity: 0.8;">
-                            ← 或 A
-                        </span>
-                    </button>
-                    <button class="word-card-btn known" onclick="markWord('known')">
-                        认识
-                        <span style="display: block; font-size: 0.7em; margin-top: 5px; opacity: 0.8;">
-                            → 或 D
-                        </span>
-                    </button>
-                </div>
-            </div>
-            <div class="word-card-progress">
-                <div class="word-card-progress-text" id="progress-text">进度: 0 / 0</div>
-                <div class="word-card-progress-bar">
-                    <div class="word-card-progress-fill" id="progress-fill" style="width: 0%"></div>
-                </div>
-            </div>
-            <div style="text-align: center; margin-top: 15px; color: #6c757d; font-size: 0.9em;">
-                💡 提示：使用键盘方向键或 A/D 键快速标记
-            </div>
-        `;
-    }
-
-    document.getElementById('word-json-file').value = '';
-    importedWords = [];
+function addSelectedWords() {
+    const checked = document.querySelectorAll('#word-list input[type="checkbox"]:checked');
+    if (checked.length === 0) return showNotification('请至少选择一个单词', 'error');
+    const words = Array.from(checked, cb => importedWords[parseInt(cb.dataset.wordIndex)].word);
+    submitWords(words, 'import-result');
 }
 
-// 页面加载完成后的初始化
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('智能写字机Web界面已加载');
-
-    // 检测后端功能可用性
-    checkBackendFeatures();
-
-    // 初始化标记位置设置区
-    if (document.getElementById('marker-position-manual')) {
-        setMarkerPositionMode('manual');
-        updateLastPositionInfo();
-    }
-});
-
-// 检测后端功能
-async function checkBackendFeatures() {
-    try {
-        // 尝试调用一个简单的API来检测后端是否可用
-        const response = await fetch(`${API_BASE}/api/get-known-words`, {
-            method: 'GET',
-            timeout: 2000
-        });
-
-        if (response.ok) {
-            console.log('✓ 后端服务正常运行');
-        }
-    } catch (error) {
-        console.warn('⚠ 后端服务连接失败:', error);
-        showNotification('无法连接到后端服务，某些功能可能不可用', 'info');
-    }
-}
-
-// 切换导入模式
 function switchImportMode(mode) {
     importMode = mode;
+    const isList = mode === 'list';
 
-    const listMode = document.getElementById('import-mode-list');
-    const cardMode = document.getElementById('import-mode-card');
-    const listBtn = document.getElementById('mode-list-btn');
-    const cardBtn = document.getElementById('mode-card-btn');
+    if (isList) {
+        show('import-mode-list');
+        hide('import-mode-card');
+    } else {
+        hide('import-mode-list');
+        show('import-mode-card');
+    }
 
-    if (mode === 'list') {
-        listMode.style.display = 'block';
-        cardMode.style.display = 'none';
-        listBtn.classList.add('active');
-        cardBtn.classList.remove('active');
+    document.getElementById('mode-list-btn').classList.toggle('active', isList);
+    document.getElementById('mode-card-btn').classList.toggle('active', !isList);
 
-        // 移除键盘监听
+    if (isList) {
         document.removeEventListener('keydown', handleCardKeyPress);
     } else {
-        listMode.style.display = 'none';
-        cardMode.style.display = 'block';
-        listBtn.classList.remove('active');
-        cardBtn.classList.add('active');
-
-        // 初始化卡片模式
         initCardMode();
-
-        // 添加键盘监听
         document.addEventListener('keydown', handleCardKeyPress);
     }
 }
 
-// 处理卡片模式的键盘按键
 function handleCardKeyPress(event) {
-    // 只在卡片模式下响应
     if (importMode !== 'card') return;
-
-    // 防止按键触发其他行为
-    const key = event.key.toLowerCase();
-
-    // 左箭头 或 A键：不认识
-    if (event.key === 'ArrowLeft' || key === 'a') {
+    const key = event.key;
+    if (key === 'ArrowLeft' || key.toLowerCase() === 'a') {
         event.preventDefault();
         markWord('unknown');
-        addButtonAnimation('unknown');
-    }
-    // 右箭头 或 D键：认识
-    else if (event.key === 'ArrowRight' || key === 'd') {
+        pulseButton('unknown');
+    } else if (key === 'ArrowRight' || key.toLowerCase() === 'd') {
         event.preventDefault();
         markWord('known');
-        addButtonAnimation('known');
+        pulseButton('known');
     }
 }
 
-// 按钮点击动画效果
-function addButtonAnimation(type) {
-    const button = document.querySelector(`.word-card-btn.${type}`);
-    if (button) {
-        button.style.transform = 'scale(0.95)';
-        setTimeout(() => {
-            button.style.transform = '';
-        }, 100);
+function pulseButton(type) {
+    const btn = document.querySelector(`.word-card-btn.${type}`);
+    if (btn) {
+        btn.style.transform = 'scale(0.95)';
+        setTimeout(() => { btn.style.transform = ''; }, 100);
     }
 }
 
-// 初始化卡片模式
 function initCardMode() {
     currentWordIndex = 0;
     knownWordsInCard = [];
     unknownWordsInCard = [];
-
     if (importedWords.length === 0) {
         showNotification('没有可用的单词', 'error');
         switchImportMode('list');
         return;
     }
-
     updateCardDisplay();
     updateCardProgress();
 }
 
-// 更新卡片显示
 function updateCardDisplay() {
-    const currentWordEl = document.getElementById('current-word');
-
     if (currentWordIndex >= importedWords.length) {
-        // 完成所有单词
         showCardSummary();
         return;
     }
-
-    const word = importedWords[currentWordIndex];
-    currentWordEl.textContent = word.word;
+    document.getElementById('current-word').textContent = importedWords[currentWordIndex].word;
 }
 
-// 更新卡片进度
 function updateCardProgress() {
-    const progressText = document.getElementById('progress-text');
-    const progressFill = document.getElementById('progress-fill');
-
     const total = importedWords.length;
-    const current = currentWordIndex;
-    const percentage = (current / total) * 100;
-
-    progressText.textContent = `进度: ${current} / ${total}`;
-    progressFill.style.width = `${percentage}%`;
+    const pct = (currentWordIndex / total) * 100;
+    document.getElementById('progress-text').textContent = `进度: ${currentWordIndex} / ${total}`;
+    document.getElementById('progress-fill').style.width = `${pct}%`;
 }
 
-// 标记单词
 function markWord(type) {
-    if (currentWordIndex >= importedWords.length) {
-        return;
-    }
-
-    const word = importedWords[currentWordIndex];
-
-    if (type === 'known') {
-        knownWordsInCard.push(word);
-    } else {
-        unknownWordsInCard.push(word);
-    }
-
+    if (currentWordIndex >= importedWords.length) return;
+    (type === 'known' ? knownWordsInCard : unknownWordsInCard).push(importedWords[currentWordIndex]);
     currentWordIndex++;
     updateCardDisplay();
     updateCardProgress();
 }
 
-// 显示卡片完成摘要
 function showCardSummary() {
     const container = document.querySelector('.word-card-container');
-
     container.innerHTML = `
         <div class="word-card-summary">
-            <h3>🎉 完成！</h3>
+            <h3>完成！</h3>
             <div class="word-card-summary-stats">
                 <div class="word-card-summary-stat">
                     <div class="word-card-summary-stat-value known">${knownWordsInCard.length}</div>
@@ -847,9 +549,7 @@ function showCardSummary() {
                     <div class="word-card-summary-stat-label">不认识</div>
                 </div>
             </div>
-            <p style="color: #6c757d; margin-bottom: 20px;">
-                已标记 ${unknownWordsInCard.length} 个单词为"不认识"，将添加到数据库
-            </p>
+            <p class="summary-note">已标记 ${unknownWordsInCard.length} 个单词为"不认识"，将添加到数据库</p>
             <div class="word-card-complete-actions">
                 <button class="btn btn-success" onclick="submitCardResults()">提交到数据库</button>
                 <button class="btn btn-secondary" onclick="resetImport()">重新上传</button>
@@ -858,305 +558,615 @@ function showCardSummary() {
     `;
 }
 
-// 提交卡片结果
-async function submitCardResults() {
+function submitCardResults() {
     if (unknownWordsInCard.length === 0) {
         showNotification('没有需要添加的单词', 'info');
         resetImport();
         return;
     }
-
-    showLoading();
-
-    const wordsToAdd = unknownWordsInCard.map(item => item.word);
-
-    try {
-        const response = await fetch(`${API_BASE}/api/add-known-words`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                words: wordsToAdd
-            })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            const resultDiv = document.getElementById('import-result');
-            resultDiv.innerHTML = `
+    const words = unknownWordsInCard.map(w => w.word);
+    apiRequest({
+        url: '/api/add-known-words',
+        json: { words },
+        onSuccess(data) {
+            const r = document.getElementById('import-result');
+            r.innerHTML = `
                 <div class="alert alert-success">
                     <strong>添加成功！</strong><br>
                     成功添加 ${data.added_count} 个单词到数据库。<br>
                     ${data.skipped_count > 0 ? `跳过 ${data.skipped_count} 个已存在的单词。` : ''}
                 </div>
             `;
-            resultDiv.style.display = 'block';
-
+            show(r);
             showNotification('添加成功！', 'success');
-            setTimeout(() => {
-                resetImport();
-            }, 2000);
-        } else {
-            showNotification(data.error || '添加失败', 'error');
+            setTimeout(resetImport, 2000);
         }
-    } catch (error) {
-        showNotification('网络错误：' + error.message, 'error');
-    } finally {
-        hideLoading();
+    });
+}
+
+function resetImport() {
+    document.removeEventListener('keydown', handleCardKeyPress);
+    importMode = 'list';
+    currentWordIndex = 0;
+    knownWordsInCard = [];
+    unknownWordsInCard = [];
+
+    show('import-step-1');
+    hide('import-step-2');
+    hide('import-result');
+    show('import-mode-list');
+    hide('import-mode-card');
+    document.getElementById('mode-list-btn').classList.add('active');
+    document.getElementById('mode-card-btn').classList.remove('active');
+
+    const cardContainer = document.querySelector('.word-card-container');
+    if (cardContainer && cardTemplateHTML) {
+        cardContainer.innerHTML = cardTemplateHTML;
+    }
+
+    document.getElementById('word-json-file').value = '';
+    importedWords = [];
+}
+
+// ==================== 已会词管理 ====================
+
+let allKnownWords = [];
+
+async function loadKnownWords() {
+    try {
+        const resp = await fetch(API_BASE + '/api/get-known-words');
+        const data = await resp.json();
+        if (data.success) {
+            allKnownWords = data.words;
+            renderKnownWords(allKnownWords);
+        }
+    } catch (e) {
+        showNotification('加载已会词列表失败', 'error');
     }
 }
 
-// ==================== 摄像头功能 ====================
+function renderKnownWords(words) {
+    const stats = document.getElementById('known-words-stats');
+    const list = document.getElementById('known-words-list');
+    stats.textContent = `共 ${words.length} 个已会词`;
+    list.innerHTML = '';
 
-// 存储摄像头流
-const cameraStreams = {
-    lookup: null,
-    copy: null,
-    calib: null
-};
+    const frag = document.createDocumentFragment();
+    words.forEach(word => {
+        const item = document.createElement('div');
+        item.className = 'known-word-item';
+        item.innerHTML = `
+            <span class="known-word-text">${word}</span>
+            <button class="btn btn-danger btn-small" onclick="removeKnownWord('${word}')">删除</button>
+        `;
+        frag.appendChild(item);
+    });
+    list.appendChild(frag);
+}
 
-// 启动摄像头
+function filterKnownWords() {
+    const query = document.getElementById('known-words-search').value.toLowerCase();
+    const filtered = allKnownWords.filter(w => w.includes(query));
+    renderKnownWords(filtered);
+}
+
+function removeKnownWord(word) {
+    apiRequest({
+        url: '/api/remove-known-word',
+        json: { word },
+        onSuccess() {
+            showNotification(`已删除: ${word}`, 'success');
+            loadKnownWords();
+        }
+    });
+}
+
+// ==================== OneDrive 备份 ====================
+
+let onedrivePollTimer = null;
+
+async function checkOnedriveStatus() {
+    try {
+        const resp = await fetch(API_BASE + '/api/onedrive/status');
+        const data = await resp.json();
+        if (!data.configured) {
+            document.getElementById('onedrive-status').innerHTML = '未配置OneDrive Client ID，请设置环境变量 <code>ONEDRIVE_CLIENT_ID</code>';
+            return;
+        }
+        if (data.authorized) {
+            document.getElementById('onedrive-status').innerHTML = '已连接OneDrive';
+            document.getElementById('btn-onedrive-connect').classList.add('hidden');
+            document.getElementById('btn-onedrive-backup').classList.remove('hidden');
+            document.getElementById('btn-onedrive-list').classList.remove('hidden');
+            document.getElementById('btn-onedrive-disconnect').classList.remove('hidden');
+        } else {
+            document.getElementById('onedrive-status').innerHTML = '未连接OneDrive';
+            document.getElementById('btn-onedrive-connect').classList.remove('hidden');
+        }
+    } catch {}
+}
+
+function onedriveConnect() {
+    apiRequest({
+        url: '/api/onedrive/auth',
+        onSuccess(data) {
+            const instructions = document.getElementById('onedrive-auth-instructions');
+            instructions.innerHTML = `
+                请在浏览器中打开以下链接并输入代码：<br>
+                <strong>${data.verification_uri}</strong><br>
+                代码: <strong style="font-size:1.3em; letter-spacing:2px;">${data.user_code}</strong>
+            `;
+            show('onedrive-auth-modal');
+            show('onedrive-polling-spinner');
+
+            if (onedrivePollTimer) clearInterval(onedrivePollTimer);
+            onedrivePollTimer = setInterval(() => {
+                pollOnedriveToken(data.device_code);
+            }, (data.interval || 5) * 1000);
+        }
+    });
+}
+
+function pollOnedriveToken(deviceCode) {
+    fetch(API_BASE + '/api/onedrive/poll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_code: deviceCode })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            clearInterval(onedrivePollTimer);
+            onedrivePollTimer = null;
+            hide('onedrive-auth-modal');
+            hide('onedrive-polling-spinner');
+            showNotification('OneDrive授权成功！', 'success');
+            checkOnedriveStatus();
+        } else if (!data.pending) {
+            clearInterval(onedrivePollTimer);
+            onedrivePollTimer = null;
+            hide('onedrive-polling-spinner');
+            showNotification(data.error || '授权失败', 'error');
+        }
+    })
+    .catch(() => {});
+}
+
+function closeOnedriveAuth() {
+    if (onedrivePollTimer) {
+        clearInterval(onedrivePollTimer);
+        onedrivePollTimer = null;
+    }
+    hide('onedrive-auth-modal');
+    hide('onedrive-polling-spinner');
+}
+
+function onedriveBackup() {
+    apiRequest({
+        url: '/api/onedrive/backup',
+        onSuccess(data) {
+            showNotification(`备份成功！版本 v${data.version}，共 ${data.word_count} 个单词`, 'success');
+        }
+    });
+}
+
+function onedriveListBackups() {
+    apiRequest({
+        url: '/api/onedrive/backups',
+        onSuccess(data) {
+            const container = document.getElementById('onedrive-backup-list');
+            if (!data.backups || data.backups.length === 0) {
+                container.innerHTML = '<p class="hint-text">暂无备份</p>';
+            } else {
+                container.innerHTML = data.backups.map(b => `
+                    <div class="backup-item">
+                        <span class="backup-name">${b.name}</span>
+                        <span class="backup-meta">${b.size} bytes | ${new Date(b.last_modified).toLocaleString('zh-CN')}</span>
+                        <button class="btn btn-primary btn-small" onclick="onedriveRestore('${b.name}')">恢复</button>
+                    </div>
+                `).join('');
+            }
+            show(container);
+        }
+    });
+}
+
+function onedriveRestore(backupName) {
+    apiRequest({
+        url: '/api/onedrive/restore',
+        json: { backup_name: backupName, merge: true },
+        onSuccess(data) {
+            showNotification(`恢复成功！${data.new_words} 个新单词已合并，共 ${data.merged_count} 个`, 'success');
+            loadKnownWords();
+        }
+    });
+}
+
+function onedriveDisconnect() {
+    if (!confirm('确定要断开OneDrive连接吗？')) return;
+    apiRequest({
+        url: '/api/onedrive/disconnect',
+        onSuccess() {
+            showNotification('已断开OneDrive连接', 'success');
+            checkOnedriveStatus();
+            document.getElementById('onedrive-backup-list').classList.add('hidden');
+        }
+    });
+}
+
+// ==================== 查词预览 ====================
+
+let lookupDebounceTimer = null;
+
+function debounceLookup() {
+    clearTimeout(lookupDebounceTimer);
+    const word = document.getElementById('preview-word-input').value.trim();
+    if (!word) return hideWordPreview();
+    lookupDebounceTimer = setTimeout(lookupWord, 500);
+}
+
+async function lookupWord() {
+    const word = document.getElementById('preview-word-input').value.trim();
+    if (!word) return hideWordPreview();
+    showWordPreviewLoading();
+
+    try {
+        const resp = await fetch(`${API_BASE}/api/word-preview?word=${encodeURIComponent(word)}`);
+        const data = await resp.json();
+        data.success ? displayWordPreview(data) : showWordPreviewNoResult();
+    } catch {
+        showNotification('查询失败', 'error');
+        showWordPreviewNoResult();
+    }
+}
+
+function setWordPreviewVisibility(loading, result, noResult) {
+    const l = document.getElementById('word-preview-loading');
+    const r = document.getElementById('word-preview-result');
+    const n = document.getElementById('word-preview-no-result');
+    if (loading) show(l); else hide(l);
+    if (result) show(r); else hide(r);
+    if (noResult) show(n); else hide(n);
+}
+
+function showWordPreviewLoading() { setWordPreviewVisibility(true, false, false); }
+function hideWordPreview() { setWordPreviewVisibility(false, false, false); }
+function showWordPreviewNoResult() { setWordPreviewVisibility(false, false, true); }
+
+function displayWordPreview(data) {
+    setWordPreviewVisibility(false, true, false);
+
+    document.getElementById('preview-word').textContent = data.word;
+    document.getElementById('preview-phonetic').textContent = data.phonetic || '';
+    document.getElementById('preview-pos').textContent = data.pos || '';
+
+    fillListSection('preview-definitions', 'preview-definitions-section', data.definitions);
+    fillListSection('preview-examples', 'preview-examples-section', data.examples);
+
+    const baseSection = document.getElementById('preview-base-form-section');
+    if (data.base_form && data.base_form !== data.word) {
+        show(baseSection);
+        document.getElementById('preview-base-form').textContent = `原形：${data.base_form}`;
+    } else {
+        hide(baseSection);
+    }
+
+    const entriesSection = document.getElementById('preview-all-entries-section');
+    if (data.all_entries?.length) {
+        show(entriesSection);
+        const entriesDiv = document.getElementById('preview-all-entries');
+        entriesDiv.innerHTML = data.all_entries.map((entry, i) => {
+            let html = `<div class="entry-item${i < data.all_entries.length - 1 ? ' entry-border' : ''}">`;
+            html += `<strong class="entry-pos">${entry.pos || '未知词性'}</strong>`;
+            if (entry.phonetics?.length) html += ` <span class="entry-phonetic">${entry.phonetics[0]}</span>`;
+            if (entry.definitions?.length) {
+                html += '<ul class="entry-def-list">';
+                entry.definitions.forEach(def => { html += `<li>${def}</li>`; });
+                html += '</ul>';
+            }
+            html += '</div>';
+            return html;
+        }).join('');
+    } else {
+        hide(entriesSection);
+    }
+}
+
+function fillListSection(listId, sectionId, items) {
+    const section = document.getElementById(sectionId);
+    const list = document.getElementById(listId);
+    if (items?.length) {
+        show(section);
+        list.innerHTML = items.map(d => `<li>${d}</li>`).join('');
+    } else {
+        hide(section);
+    }
+}
+
+// ==================== 自动查词 ====================
+
+function autoLookup() {
+    const imageInput = document.getElementById('lookup-image');
+    if (!imageInput.files[0]) return showNotification('请先上传试卷图片', 'error');
+
+    const fd = new FormData();
+    fd.append('image', imageInput.files[0]);
+    fd.append('known_words', document.getElementById('known-words-input').value);
+
+    apiRequest({
+        url: '/api/auto-lookup',
+        formData: fd,
+        onSuccess(data) {
+            showResultElement('lookup-result', 'lookup-annotated', data.annotated_url, 'lookup-download', data.gcode_url);
+            showNotification('处理完成！', 'success');
+        },
+        onError(msg, data) {
+            if (data?.error?.includes('未加载')) console.error('自动查词模块不可用:', data.error);
+            showNotification(msg, 'error');
+        }
+    });
+}
+
+// ==================== 自动抄写 ====================
+
+function autoCopy() {
+    const imageInput = document.getElementById('copy-image');
+    const text = document.getElementById('copy-text').value.trim();
+    if (!imageInput.files[0]) return showNotification('请先上传横线本图片', 'error');
+    if (!text) return showNotification('请输入要抄写的文字', 'error');
+
+    const fd = new FormData();
+    fd.append('image', imageInput.files[0]);
+    fd.append('text', text);
+
+    apiRequest({
+        url: '/api/auto-copy',
+        formData: fd,
+        onSuccess(data) {
+            showResultElement('copy-result', 'copy-layout', data.layout_url, 'copy-download', data.gcode_url);
+            showNotification('处理完成！', 'success');
+        },
+        onError(msg, data) {
+            if (data?.error?.includes('未加载')) console.error('自动抄写模块不可用:', data.error);
+            showNotification(msg, 'error');
+        }
+    });
+}
+
+// ==================== 书写文字 ====================
+
+function writeText() {
+    const text = document.getElementById('write-text').value.trim();
+    if (!text) return showNotification('请输入要书写的文字', 'error');
+
+    apiRequest({
+        url: '/api/write',
+        json: { text, use_handright: document.getElementById('use-handright').checked },
+        onSuccess(data) {
+            showResultElement('write-result', 'write-preview', data.preview_url, 'write-download', data.download_url);
+            showNotification('书写代码生成成功！', 'success');
+        }
+    });
+}
+
+// ==================== 校准与标记 ====================
+
+function calibrate() {
+    const imageInput = document.getElementById('calib-image');
+    if (!imageInput.files[0]) return showNotification('请先上传校准照片', 'error');
+
+    const positions = collectMarkerPositions();
+    const fd = new FormData();
+    fd.append('image', imageInput.files[0]);
+    fd.append('marker_size', document.getElementById('marker-size').value);
+    fd.append('positions', JSON.stringify(positions));
+
+    apiRequest({
+        url: '/api/calibrate',
+        formData: fd,
+        onSuccess() {
+            const r = document.getElementById('calib-result');
+            r.innerHTML = '<div class="alert alert-success"><strong>校准成功！</strong><br>校准文件已保存，可以开始使用写字机了。</div>';
+            show(r);
+            showNotification('校准成功！', 'success');
+        }
+    });
+}
+
+function drawMarkers() {
+    const positions = collectMarkerPositions();
+    if (Object.keys(positions).length < 3) return showNotification('至少需要3个标记位置', 'error');
+
+    apiRequest({
+        url: '/api/draw-markers',
+        json: {
+            positions,
+            marker_size: parseFloat(document.getElementById('marker-size').value)
+        },
+        onSuccess(data) {
+            const dl = document.getElementById('draw-markers-download');
+            dl.href = data.gcode_url;
+            dl.download = data.gcode_file;
+            showResultElement('draw-markers-result', 'draw-markers-preview', data.preview_url);
+            showNotification('标记绘制Gcode生成成功！', 'success');
+        }
+    });
+}
+
+function generateMarkers() {
+    apiRequest({
+        url: '/api/generate-markers',
+        json: {
+            num_markers: parseInt(document.getElementById('num-markers').value),
+            marker_size: parseInt(document.getElementById('marker-size-gen').value)
+        },
+        onSuccess(data) {
+            showResultElement('markers-result', 'markers-preview', data.download_url, 'markers-download', data.download_url);
+            showNotification('标记生成成功！', 'success');
+        }
+    });
+}
+
+function collectMarkerPositions() {
+    const positions = {};
+    document.querySelectorAll('.marker-position-input').forEach((el, i) => {
+        positions[i] = {
+            x: parseFloat(el.querySelector('.marker-x').value),
+            y: parseFloat(el.querySelector('.marker-y').value)
+        };
+    });
+    return positions;
+}
+
+function setMarkerPositions(positions) {
+    document.querySelectorAll('.marker-position-input').forEach((el, i) => {
+        if (positions[i]) {
+            el.querySelector('.marker-x').value = positions[i].x;
+            el.querySelector('.marker-y').value = positions[i].y;
+        }
+    });
+}
+
+// ==================== 摄像头 ====================
+
+const cameraStreams = {};
+
 async function startCamera(prefix) {
     const video = document.getElementById(`${prefix}-video`);
     const container = document.getElementById(`${prefix}-camera-container`);
     const button = container.parentElement.querySelector('.camera-button');
 
-    // 检查浏览器支持
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showNotification('您的浏览器不支持摄像头功能', 'error');
-        return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+        return showNotification('您的浏览器不支持摄像头功能', 'error');
     }
 
     try {
-        // 请求摄像头权限
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: 'environment', // 优先使用后置摄像头
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
-            }
+            video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
         });
-
-        // 保存流
         cameraStreams[prefix] = stream;
-
-        // 设置视频源
         video.srcObject = stream;
         video.style.display = 'block';
-
-        // 显示视频容器
-        container.style.display = 'block';
+        show(container);
         button.disabled = true;
         button.textContent = '📷 摄像头已启动';
-
         showNotification('摄像头已启动', 'success');
-
     } catch (error) {
-        console.error('摄像头访问失败:', error);
-        if (error.name === 'NotAllowedError') {
-            showNotification('请允许访问摄像头', 'error');
-        } else if (error.name === 'NotFoundError') {
-            showNotification('未检测到摄像头设备', 'error');
-        } else {
-            showNotification('摄像头启动失败: ' + error.message, 'error');
-        }
+        if (error.name === 'NotAllowedError') showNotification('请允许访问摄像头', 'error');
+        else if (error.name === 'NotFoundError') showNotification('未检测到摄像头设备', 'error');
+        else showNotification('摄像头启动失败: ' + error.message, 'error');
     }
 }
 
-// 拍照
 function capturePhoto(prefix) {
     const video = document.getElementById(`${prefix}-video`);
     const canvas = document.getElementById(`${prefix}-canvas`);
     const preview = document.getElementById(`${prefix}-preview`);
 
-    if (!cameraStreams[prefix]) {
-        showNotification('请先启动摄像头', 'error');
-        return;
-    }
+    if (!cameraStreams[prefix]) return showNotification('请先启动摄像头', 'error');
 
-    // 设置canvas尺寸与视频一致
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // 绘制当前帧
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // 转换为图片URL
     const imageUrl = canvas.toDataURL('image/png');
-
-    // 显示预览
     preview.src = imageUrl;
+    preview.classList.remove('hidden');
     preview.style.display = 'inline-block';
 
-    // 创建文件对象
-    canvas.toBlob(function(blob) {
-        // 创建File对象
-        const file = new File([blob], `camera_${prefix}_${Date.now()}.png`, {
-            type: 'image/png'
-        });
-
-        // 创建FileList对象
-        const dataTransfer = new DataTransfer();
-        dataTransfer.items.add(file);
-
-        // 设置到文件输入框
-        const fileInput = document.getElementById(`${prefix === 'lookup' ? 'lookup' : prefix === 'copy' ? 'copy' : 'calib'}-image`);
-        fileInput.files = dataTransfer.files;
-
+    canvas.toBlob(blob => {
+        const file = new File([blob], `camera_${prefix}_${Date.now()}.png`, { type: 'image/png' });
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        document.getElementById(`${prefix}-image`).files = dt.files;
         showNotification('拍照成功！', 'success');
-
-        // 关闭摄像头
         stopCamera(prefix);
     }, 'image/png');
 }
 
-// 关闭摄像头
 function stopCamera(prefix) {
     const video = document.getElementById(`${prefix}-video`);
     const container = document.getElementById(`${prefix}-camera-container`);
     const button = container.parentElement.querySelector('.camera-button');
 
-    if (cameraStreams[prefix]) {
-        // 停止所有轨道
-        const tracks = cameraStreams[prefix].getTracks();
-        tracks.forEach(track => track.stop());
+    if (!cameraStreams[prefix]) return;
 
-        // 清空流
-        cameraStreams[prefix] = null;
-
-        // 清空视频源
-        video.srcObject = null;
-        video.style.display = 'none';
-
-        // 隐藏视频容器
-        container.style.display = 'none';
-        button.disabled = false;
-        button.textContent = '📷 使用摄像头拍照';
-
-        showNotification('摄像头已关闭', 'info');
-    }
+    cameraStreams[prefix].getTracks().forEach(t => t.stop());
+    cameraStreams[prefix] = null;
+    video.srcObject = null;
+    video.style.display = 'none';
+    hide(container);
+    button.disabled = false;
+    button.textContent = '📱 使用本机摄像头';
+    showNotification('摄像头已关闭', 'info');
 }
 
-// 页面卸载时关闭所有摄像头
-window.addEventListener('beforeunload', function() {
-    Object.keys(cameraStreams).forEach(prefix => {
-        if (cameraStreams[prefix]) {
-            const tracks = cameraStreams[prefix].getTracks();
-            tracks.forEach(track => track.stop());
-        }
+window.addEventListener('beforeunload', () => {
+    Object.values(cameraStreams).forEach(stream => {
+        if (stream) stream.getTracks().forEach(t => t.stop());
     });
 });
 
+// ==================== 标记位置管理 ====================
+
 const STORAGE_KEY = 'dreamword_marker_positions_v1';
 
-// 切换标记位置设置模式
 function setMarkerPositionMode(mode) {
-    const modes = ['manual', 'auto', 'load'];
-
-    modes.forEach(item => {
-        const modeContainer = document.getElementById(`marker-position-${item}`);
-        const modeBtn = document.getElementById(`mode-${item}-btn`);
-
-        if (modeContainer) {
-            modeContainer.style.display = item === mode ? 'block' : 'none';
+    ['manual', 'auto', 'load'].forEach(m => {
+        const container = document.getElementById(`marker-position-${m}`);
+        const btn = document.getElementById(`mode-${m}-btn`);
+        if (container) {
+            if (m === mode) {
+                show(container);
+            } else {
+                hide(container);
+            }
         }
-        if (modeBtn) {
-            modeBtn.classList.toggle('active', item === mode);
-        }
+        if (btn) btn.classList.toggle('active', m === mode);
     });
-
-    if (mode === 'load') {
-        updateLastPositionInfo();
-    }
+    if (mode === 'load') updateLastPositionInfo();
 }
 
-// 自动生成推荐的四角标记位置
 function autoGeneratePositions() {
-    const positions = [
-        { x: 10, y: 10 },
-        { x: 207, y: 10 },
-        { x: 207, y: 289 },
-        { x: 10, y: 289 }
-    ];
-
-    const positionInputs = document.querySelectorAll('.marker-position-input');
-    positions.forEach((pos, index) => {
-        if (positionInputs[index]) {
-            positionInputs[index].querySelector('.marker-x').value = pos.x;
-            positionInputs[index].querySelector('.marker-y').value = pos.y;
-        }
-    });
-
+    setMarkerPositions([
+        { x: 10, y: 10 }, { x: 207, y: 10 },
+        { x: 207, y: 289 }, { x: 10, y: 289 }
+    ]);
     showNotification('已自动生成推荐位置（四个角落）', 'success');
 }
 
-// 保存当前位置
 function saveCurrentPositions() {
-    const positionInputs = document.querySelectorAll('.marker-position-input');
     const positions = [];
-
-    positionInputs.forEach((input, index) => {
-        const x = input.querySelector('.marker-x').value;
-        const y = input.querySelector('.marker-y').value;
+    document.querySelectorAll('.marker-position-input').forEach((el, i) => {
         positions.push({
-            id: index,
-            x: parseFloat(x),
-            y: parseFloat(y)
+            id: i,
+            x: parseFloat(el.querySelector('.marker-x').value),
+            y: parseFloat(el.querySelector('.marker-y').value)
         });
     });
-
-    // 保存到localStorage
-    const data = {
-        positions: positions,
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        positions,
         timestamp: new Date().toISOString(),
         markerSize: parseFloat(document.getElementById('marker-size').value)
-    };
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-
+    }));
     showNotification('当前位置配置已保存', 'success');
     updateLastPositionInfo();
 }
 
-// 加载上次位置
 function loadLastPositions() {
-    const savedData = localStorage.getItem(STORAGE_KEY);
-
-    if (!savedData) {
-        showNotification('未找到保存的位置配置', 'error');
-        return;
-    }
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return showNotification('未找到保存的位置配置', 'error');
 
     try {
-        const data = JSON.parse(savedData);
-
-        // 恢复位置
-        const positionInputs = document.querySelectorAll('.marker-position-input');
-        data.positions.forEach((pos, index) => {
-            if (positionInputs[index]) {
-                positionInputs[index].querySelector('.marker-x').value = pos.x;
-                positionInputs[index].querySelector('.marker-y').value = pos.y;
-            }
-        });
-
-        // 恢复标记尺寸
-        if (data.markerSize) {
-            document.getElementById('marker-size').value = data.markerSize;
-        }
-
-        const saveTime = new Date(data.timestamp).toLocaleString('zh-CN');
-        showNotification(`已加载 ${saveTime} 保存的位置配置`, 'success');
-
-    } catch (error) {
+        const data = JSON.parse(saved);
+        setMarkerPositions(data.positions);
+        if (data.markerSize) document.getElementById('marker-size').value = data.markerSize;
+        showNotification(`已加载 ${new Date(data.timestamp).toLocaleString('zh-CN')} 保存的位置配置`, 'success');
+    } catch {
         showNotification('加载位置配置失败', 'error');
-        console.error(error);
     }
 }
 
-// 清除保存的位置
 function clearSavedPositions() {
     if (confirm('确定要清除保存的位置配置吗？')) {
         localStorage.removeItem(STORAGE_KEY);
@@ -1165,257 +1175,46 @@ function clearSavedPositions() {
     }
 }
 
-// 更新上次位置的信息显示
 function updateLastPositionInfo() {
     const infoDiv = document.getElementById('last-position-info');
-    const savedData = localStorage.getItem(STORAGE_KEY);
-
-    if (savedData) {
+    if (!infoDiv) return;
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
         try {
-            const data = JSON.parse(savedData);
-            const saveTime = new Date(data.timestamp).toLocaleString('zh-CN');
-            infoDiv.innerHTML = `✅ 已保存: ${saveTime} (${data.positions.length} 个标记)`;
-        } catch (error) {
+            const data = JSON.parse(saved);
+            infoDiv.innerHTML = `已保存: ${new Date(data.timestamp).toLocaleString('zh-CN')} (${data.positions.length} 个标记)`;
+        } catch {
             infoDiv.innerHTML = '';
         }
     } else {
-        infoDiv.innerHTML = 'ℹ️ 暂无保存的位置配置';
+        infoDiv.innerHTML = '暂无保存的位置配置';
     }
 }
 
-// 绘制ArUco标记
-async function drawMarkers() {
-    const markerSize = document.getElementById('marker-size').value;
+// ==================== 初始化 ====================
 
-    // 收集标记位置
-    const positionInputs = document.querySelectorAll('.marker-position-input');
-    const positions = {};
+function init() {
+    console.log('智能写字机Web界面已加载');
 
-    positionInputs.forEach((input, index) => {
-        const x = input.querySelector('.marker-x').value;
-        const y = input.querySelector('.marker-y').value;
-        positions[index] = { x: parseFloat(x), y: parseFloat(y) };
-    });
-
-    // 验证位置
-    if (Object.keys(positions).length < 3) {
-        showNotification('至少需要3个标记位置', 'error');
-        return;
+    if (document.getElementById('marker-position-manual')) {
+        setMarkerPositionMode('manual');
+        updateLastPositionInfo();
     }
 
-    showLoading();
-
-    try {
-        const response = await fetch(`${API_BASE}/api/draw-markers`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                positions: positions,
-                marker_size: parseFloat(markerSize)
-            })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            // 显示预览
-            const preview = document.getElementById('draw-markers-preview');
-            preview.src = data.preview_url;
-            preview.style.display = 'inline-block';
-
-            // 设置下载链接
-            const downloadBtn = document.getElementById('draw-markers-download');
-            downloadBtn.href = data.gcode_url;
-            downloadBtn.download = data.gcode_file;
-
-            // 显示结果
-            document.getElementById('draw-markers-result').style.display = 'block';
-
-            showNotification('标记绘制Gcode生成成功！', 'success');
-        } else {
-            showNotification(data.error || '生成失败', 'error');
-        }
-    } catch (error) {
-        showNotification('网络错误：' + error.message, 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-// ==================== 单词预览功能 ====================
-
-// 防抖定时器
-let lookupDebounceTimer = null;
-
-// 防抖查询
-function debounceLookup() {
-    // 清除之前的定时器
-    if (lookupDebounceTimer) {
-        clearTimeout(lookupDebounceTimer);
-    }
-
-    // 获取输入的单词
-    const word = document.getElementById('preview-word-input').value.trim();
-
-    // 如果输入为空，隐藏结果
-    if (!word) {
-        hideWordPreview();
-        return;
-    }
-
-    // 设置新的定时器（500ms后执行查询）
-    lookupDebounceTimer = setTimeout(() => {
-        lookupWord();
-    }, 500);
-}
-
-// 查询单词
-async function lookupWord() {
-    const word = document.getElementById('preview-word-input').value.trim();
-
-    if (!word) {
-        hideWordPreview();
-        return;
-    }
-
-    // 显示加载提示
-    showWordPreviewLoading();
-
-    try {
-        const response = await fetch(`${API_BASE}/api/word-preview?word=${encodeURIComponent(word)}`);
-        const data = await response.json();
-
-        if (data.success) {
-            displayWordPreview(data);
-        } else {
-            showWordPreviewNoResult();
-        }
-    } catch (error) {
-        showNotification('查询失败：' + error.message, 'error');
-        showWordPreviewNoResult();
-    }
-}
-
-// 显示单词预览加载状态
-function showWordPreviewLoading() {
-    document.getElementById('word-preview-loading').style.display = 'block';
-    document.getElementById('word-preview-result').style.display = 'none';
-    document.getElementById('word-preview-no-result').style.display = 'none';
-}
-
-// 隐藏单词预览
-function hideWordPreview() {
-    document.getElementById('word-preview-loading').style.display = 'none';
-    document.getElementById('word-preview-result').style.display = 'none';
-    document.getElementById('word-preview-no-result').style.display = 'none';
-}
-
-// 显示单词预览无结果
-function showWordPreviewNoResult() {
-    document.getElementById('word-preview-loading').style.display = 'none';
-    document.getElementById('word-preview-result').style.display = 'none';
-    document.getElementById('word-preview-no-result').style.display = 'block';
-}
-
-// 显示单词预览结果
-function displayWordPreview(data) {
-    // 隐藏加载和无结果提示
-    document.getElementById('word-preview-loading').style.display = 'none';
-    document.getElementById('word-preview-no-result').style.display = 'none';
-
-    // 显示结果容器
-    const resultDiv = document.getElementById('word-preview-result');
-    resultDiv.style.display = 'block';
-
-    // 填充单词信息
-    document.getElementById('preview-word').textContent = data.word;
-    document.getElementById('preview-phonetic').textContent = data.phonetic || '';
-    document.getElementById('preview-pos').textContent = data.pos || '';
-
-    // 填充释义
-    const definitionsList = document.getElementById('preview-definitions');
-    definitionsList.innerHTML = '';
-    if (data.definitions && data.definitions.length > 0) {
-        document.getElementById('preview-definitions-section').style.display = 'block';
-        data.definitions.forEach(def => {
-            const li = document.createElement('li');
-            li.textContent = def;
-            definitionsList.appendChild(li);
-        });
-    } else {
-        document.getElementById('preview-definitions-section').style.display = 'none';
-    }
-
-    // 填充例句
-    const examplesList = document.getElementById('preview-examples');
-    examplesList.innerHTML = '';
-    if (data.examples && data.examples.length > 0) {
-        document.getElementById('preview-examples-section').style.display = 'block';
-        data.examples.forEach(example => {
-            const li = document.createElement('li');
-            li.textContent = example;
-            examplesList.appendChild(li);
-        });
-    } else {
-        document.getElementById('preview-examples-section').style.display = 'none';
-    }
-
-    // 显示词根信息
-    if (data.base_form && data.base_form !== data.word) {
-        document.getElementById('preview-base-form-section').style.display = 'block';
-        document.getElementById('preview-base-form').textContent = `原形：${data.base_form}`;
-    } else {
-        document.getElementById('preview-base-form-section').style.display = 'none';
-    }
-
-    // 显示所有词条
-    if (data.all_entries && data.all_entries.length > 0) {
-        document.getElementById('preview-all-entries-section').style.display = 'block';
-        const allEntriesDiv = document.getElementById('preview-all-entries');
-        allEntriesDiv.innerHTML = '';
-
-        data.all_entries.forEach((entry, index) => {
-            const entryDiv = document.createElement('div');
-            entryDiv.style.padding = '10px';
-            entryDiv.style.borderBottom = index < data.all_entries.length - 1 ? '1px solid #ecf0f1' : 'none';
-
-            let entryHTML = `<strong style="color: #2c3e50;">${entry.pos || '未知词性'}</strong>`;
-
-            if (entry.phonetics && entry.phonetics.length > 0) {
-                entryHTML += ` <span style="color: #7f8c8d;">${entry.phonetics[0]}</span>`;
-            }
-
-            if (entry.definitions && entry.definitions.length > 0) {
-                entryHTML += `<ul style="margin-top: 5px; padding-left: 20px;">`;
-                entry.definitions.forEach(def => {
-                    entryHTML += `<li>${def}</li>`;
-                });
-                entryHTML += `</ul>`;
-            }
-
-            entryDiv.innerHTML = entryHTML;
-            allEntriesDiv.appendChild(entryDiv);
-        });
-    } else {
-        document.getElementById('preview-all-entries-section').style.display = 'none';
-    }
-}
-
-// 键盘事件：在单词输入框按回车直接查询
-document.addEventListener('DOMContentLoaded', function() {
     const wordInput = document.getElementById('preview-word-input');
     if (wordInput) {
-        wordInput.addEventListener('keypress', function(e) {
+        wordInput.addEventListener('keypress', e => {
             if (e.key === 'Enter') {
-                // 清除防抖定时器
-                if (lookupDebounceTimer) {
-                    clearTimeout(lookupDebounceTimer);
-                }
-                // 立即查询
+                clearTimeout(lookupDebounceTimer);
                 lookupWord();
             }
         });
     }
-});
+
+    const cardContainer = document.querySelector('.word-card-container');
+    if (cardContainer) cardTemplateHTML = cardContainer.innerHTML;
+
+    checkOnedriveStatus();
+}
+
+document.addEventListener('DOMContentLoaded', init);

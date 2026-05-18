@@ -102,12 +102,6 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/printer-config')
-def printer_config():
-    """3D打印机配置页面"""
-    return render_template('printer_config.html')
-
-
 @app.route('/api/generate-markers', methods=['POST'])
 def api_generate_markers():
     """生成ArUco标记"""
@@ -390,6 +384,62 @@ def api_preview(filename):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/ocr-words', methods=['POST'])
+def api_ocr_words():
+    """OCR识别图片中的英文单词，返回单词及位置"""
+    if not AUTO_LOOKUP_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'OCR模块未加载，请检查依赖安装（PaddleOCR、OpenCV等）'
+        })
+
+    try:
+        filepath, error_response = _save_uploaded_image('image')
+        if error_response:
+            return error_response
+
+        from src.modules.auto_lookup import TextExtractor
+        import cv2
+        import numpy as np
+
+        image = cv2.imread(filepath)
+        if image is None:
+            return _error('无法读取图片')
+
+        extractor = TextExtractor()
+        ocr_results = extractor.extract_text(image, unwarp=False)
+
+        if not ocr_results:
+            return jsonify({'success': True, 'words': [], 'image_size': list(image.shape[:2])})
+
+        english_words = extractor.filter_english_words(ocr_results)
+
+        seen = {}
+        for w in english_words:
+            key = w.text.lower()
+            if key not in seen:
+                seen[key] = w
+
+        words = []
+        for w in seen.values():
+            words.append({
+                'word': w.text,
+                'bbox': w.bbox,
+                'center': list(w.center),
+                'confidence': round(w.confidence, 3)
+            })
+
+        h, w_img = image.shape[:2]
+        return jsonify({
+            'success': True,
+            'words': words,
+            'image_size': [h, w_img]
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/api/add-known-words', methods=['POST'])
 def api_add_known_words():
     """添加已知单词到数据库"""
@@ -475,6 +525,113 @@ def api_remove_known_word():
         return jsonify({'success': False, 'error': str(e)})
 
 
+ONEDRIVE_CLIENT_ID = os.environ.get('ONEDRIVE_CLIENT_ID', '')
+
+
+def _get_onedrive_backup():
+    from src.modules.onedrive_backup import OneDriveBackup
+    return OneDriveBackup(client_id=ONEDRIVE_CLIENT_ID)
+
+
+@app.route('/api/onedrive/auth', methods=['POST'])
+def api_onedrive_auth():
+    if not ONEDRIVE_CLIENT_ID:
+        return _error('未配置OneDrive Client ID，请设置环境变量 ONEDRIVE_CLIENT_ID')
+    try:
+        backup = _get_onedrive_backup()
+        code_info = backup.get_device_code()
+        return jsonify({
+            'success': True,
+            'user_code': code_info['user_code'],
+            'device_code': code_info['device_code'],
+            'verification_uri': code_info['verification_uri'],
+            'interval': code_info.get('interval', 5),
+            'message': code_info.get('message', '')
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/onedrive/poll', methods=['POST'])
+def api_onedrive_poll():
+    try:
+        data = _json_data()
+        device_code = data.get('device_code', '')
+        if not device_code:
+            return _error('缺少device_code')
+        backup = _get_onedrive_backup()
+        result = backup.poll_token(device_code)
+        if result:
+            return jsonify({'success': True, 'message': '授权成功'})
+        return jsonify({'success': False, 'pending': True, 'message': '等待授权中...'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/onedrive/status', methods=['GET'])
+def api_onedrive_status():
+    try:
+        if not ONEDRIVE_CLIENT_ID:
+            return jsonify({'success': True, 'configured': False})
+        backup = _get_onedrive_backup()
+        return jsonify({
+            'success': True,
+            'configured': True,
+            'authorized': backup.is_authorized()
+        })
+    except Exception:
+        return jsonify({'success': True, 'configured': bool(ONEDRIVE_CLIENT_ID), 'authorized': False})
+
+
+@app.route('/api/onedrive/backup', methods=['POST'])
+def api_onedrive_backup():
+    try:
+        backup = _get_onedrive_backup()
+        if not backup.is_authorized():
+            return _error('未授权OneDrive，请先完成授权')
+        result = backup.backup()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/onedrive/backups', methods=['GET'])
+def api_onedrive_backups():
+    try:
+        backup = _get_onedrive_backup()
+        if not backup.is_authorized():
+            return _error('未授权OneDrive')
+        backups = backup.list_backups()
+        return jsonify({'success': True, 'backups': backups})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/onedrive/restore', methods=['POST'])
+def api_onedrive_restore():
+    try:
+        data = _json_data()
+        backup_name = data.get('backup_name')
+        merge = data.get('merge', True)
+        backup = _get_onedrive_backup()
+        if not backup.is_authorized():
+            return _error('未授权OneDrive')
+        result = backup.restore(backup_name=backup_name, merge=merge)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/onedrive/disconnect', methods=['POST'])
+def api_onedrive_disconnect():
+    try:
+        backup = _get_onedrive_backup()
+        backup.disconnect()
+        return jsonify({'success': True, 'message': '已断开OneDrive连接'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/api/word-preview', methods=['GET'])
 def api_word_preview():
     """查单词预览"""
@@ -506,161 +663,6 @@ def api_task_status(task_id):
     status = task_status.get(task_id, {'status': 'unknown'})
     return jsonify(status)
 
-
-
-# ==================== 3D打印机配置API ====================
-
-@app.route('/api/printer/connect', methods=['POST'])
-def api_printer_connect():
-    """连接打印机"""
-    try:
-        data = _json_data()
-        printer_ip = data.get('printer_ip', '')
-        access_code = data.get('access_code', '')
-        printer_model = data.get('printer_model', 'A1MINI')
-
-        if not printer_ip or not access_code:
-            return jsonify({'success': False, 'error': 'IP地址和访问码不能为空'})
-
-        # 连接打印机
-        # 注意：这里可以集成实际的连接逻辑
-        # 目前返回成功以演示功能
-
-        print(f"[连接请求] 打印机: {printer_model}, IP: {printer_ip}")
-
-        # 这里可以添加实际的连接测试
-        # 例如：尝试连接到打印机的API或进行ping测试
-
-        return jsonify({
-            'success': True,
-            'message': '连接成功',
-            'printer_info': {
-                'model': printer_model,
-                'ip': printer_ip,
-                'connected': True
-            }
-        })
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/printer/pages', methods=['GET'])
-def api_printer_pages():
-    """获取打印机页面列表"""
-    try:
-        # 返回示例页面列表
-        # 实际应用中可以从打印机获取
-        pages = [
-            {'id': 'page1', 'name': '页面 1'},
-            {'id': 'page2', 'name': '页面 2'},
-            {'id': 'page3', 'name': '页面 3'},
-            {'id': 'custom', 'name': '自定义页面'}
-        ]
-
-        return jsonify({
-            'success': True,
-            'pages': pages
-        })
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/printer/upload', methods=['POST'])
-def api_printer_upload():
-    """上传页面到打印机"""
-    try:
-        data = _json_data()
-        page_id = data.get('page_id') or data.get('page', '')
-        printer_ip = data.get('printer_ip', '')
-        access_code = data.get('access_code', '')
-        printer_model = data.get('printer_model', 'A1MINI')
-        config = data.get('config', {})
-
-        if not page_id:
-            return jsonify({'success': False, 'error': '页面ID不能为空'})
-
-        # 打印上传信息
-        print(f"[上传请求] 页面: {page_id}")
-        print(f"[上传请求] 配置: {config}")
-
-        # 这里可以集成实际的上传逻辑
-        # 这里可以集成实际的上传逻辑
-
-        # 模拟上传过程
-        print(f"正在上传到 {printer_model} ({printer_ip})")
-        print(f"偏移: X={config.get('offset_x', 0)}, Y={config.get('offset_y', 0)}")
-        print(f"Z轴: Up={config.get('z_pen_up', 5.0)}, Down={config.get('z_pen_down', 0.2)}")
-        print(f"原点模式: {config.get('origin_mode', 'center')}")
-        print(f"提示音: {'启用' if config.get('beep_enabled', True) else '禁用'}")
-
-        
-        try:
-            # 这里可以扩展功能来保存配置或发送到打印机
-            print(f"[OK] 配置已准备发送")
-        except Exception as e:
-            print(f"[警告] 适配器初始化失败: {e}")
-
-        return jsonify({
-            'success': True,
-            'message': '页面上传成功',
-            'page_id': page_id,
-            'page': page_id,
-            'config': config
-        })
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/printer/delete', methods=['POST'])
-def api_printer_delete():
-    """删除打印机页面"""
-    try:
-        data = _json_data()
-        page_id = data.get('page_id') or data.get('page', '')
-
-        if page_id == '':
-            return jsonify({
-                'success': False,
-                'error': '页面不能为空'
-            })
-
-        print(f"[删除页面] 页面: {page_id}")
-
-        return jsonify({
-            'success': True,
-            'message': f'页面 {page_id} 删除成功',
-            'page_id': page_id,
-            'page': page_id
-        })
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/printer/config', methods=['GET'])
-def api_printer_config():
-    """获取打印机配置"""
-    try:
-        # 这里可以从打印机或本地存储获取当前配置
-        config = {
-            'offsetX': 0.0,
-            'offsetY': 0.0,
-            'liftZ': 5.0,
-            'dropZ': 0.2,
-            'originMode': 'auto',
-            'soundEnabled': True
-        }
-
-        return jsonify({
-            'success': True,
-            'config': config
-        })
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
 
 
 def run_server(host='127.0.0.1', port=5000, debug=True):
