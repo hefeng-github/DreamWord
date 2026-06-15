@@ -212,11 +212,24 @@
                         </div>
                         <div class="preview-section">
                             <img id="lookup-preview" alt="图片预览">
+                            <div id="lookup-crop-overlay" class="crop-overlay-container hidden">
+                                <canvas id="lookup-crop-canvas" class="crop-canvas"></canvas>
+                                <div class="crop-info-bar">
+                                    <span id="crop-info-text">拖动鼠标框选查词区域（默认全部）</span>
+                                    <button class="btn btn-secondary btn-small" onclick="clearCropSelection()">清除框选</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="form-group">
                         <label for="known-words-input">已知单词（逗号分隔，这些单词将被跳过）：</label>
                         <input type="text" id="known-words-input" placeholder="hello,world,test">
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="only-phonetics">
+                            只写音标（不写中文释义）
+                        </label>
                     </div>
                     <button class="btn btn-primary" onclick="autoLookup()">开始查词书写</button>
 
@@ -316,6 +329,16 @@
                             <div class="word-card-progress-fill" id="serial-progress-fill"></div>
                         </div>
                         <div class="hint-text" id="serial-progress-text"></div>
+                    </div>
+                    <div class="form-group" style="margin-top:15px;">
+                        <label>
+                            <input type="checkbox" id="auto-calib-check">
+                            书写时启用自动定位检查（需摄像头）
+                        </label>
+                        <div class="form-inline-row" style="margin-top:8px;">
+                            <label for="calib-check-interval" style="min-width:auto;margin-bottom:0;">检查间隔（秒）：</label>
+                            <input type="number" id="calib-check-interval" value="30" min="5" max="300" style="width:80px;">
+                        </div>
                     </div>
                 </div>
 
@@ -505,6 +528,34 @@
                         </div>
 
                         <div id="calib-result" class="result hidden"></div>
+
+                        <hr class="section-divider">
+
+                        <h3>生成四角外框定位纸</h3>
+                        <div class="alert alert-info alert-compact">
+                            <strong>使用说明：</strong>生成带有 ArUco 四角标记的定位纸，打印后贴在写字机的外框上，作为长效定位参考（不必贴在写字纸上）。
+                        </div>
+                        <div class="form-group">
+                            <label for="corner-frame-width">外框宽度（毫米）：</label>
+                            <input type="number" id="corner-frame-width" value="220" min="100" max="500">
+                        </div>
+                        <div class="form-group">
+                            <label for="corner-frame-height">外框高度（毫米）：</label>
+                            <input type="number" id="corner-frame-height" value="310" min="100" max="500">
+                        </div>
+                        <div class="form-group">
+                            <label for="corner-marker-size">标记尺寸（毫米）：</label>
+                            <input type="number" id="corner-marker-size" value="30" min="10" max="80">
+                        </div>
+                        <button class="btn btn-primary" onclick="generateCornerMarkers()">📐 生成四角标记定位纸</button>
+                        <div id="corner-markers-result" class="result hidden">
+                            <h3>定位纸生成结果</h3>
+                            <div class="preview-section">
+                                <img id="corner-markers-preview" alt="四角标记定位纸">
+                            </div>
+                            <a id="corner-markers-download" class="btn btn-success" download>下载定位纸图片</a>
+                            <p class="hint-text hint-top-margin">打印后贴在写字机外框的四角上</p>
+                        </div>
 
                         <hr class="section-divider">
 

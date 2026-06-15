@@ -345,49 +345,33 @@ class PositionCalculator:
     def calculate_annotation_positions(
         self,
         word_positions: List[WordPosition],
-        calibrator: Calibrator
-    ) -> List[Annotation]:
-        """
-        计算标注位置（释义和音标）
-
-        Args:
-            word_positions: 单词位置列表
-            calibrator: 校准器
-
-        Returns:
-            标注列表
-        """
+        calibrator,
+        only_phonetics: bool = False
+    ):
         annotations = []
 
-        # 按行分组
         lines = self.group_by_lines(word_positions)
 
-        # 为每个单词计算标注位置
         for line_words in lines.values():
             for i, word_pos in enumerate(line_words):
-                # 获取物理坐标
-                phys_x, phys_y = calibrator.image_to_physical(word_pos.center)
+                phys_x, phys_y = calibrator.image_to_physical(*word_pos.center)
 
-                # 计算标注位置（在单词下方）
                 annotation_y = phys_y + self.line_spacing
 
-                # 音标位置（在单词正下方）
                 phonetic_position = (phys_x, annotation_y)
-
-                # 释义位置（在音标下方）
-                definition_position = (phys_x, annotation_y + self.line_spacing)
-
                 annotations.append(Annotation(
-                    text="",  # 稍后填充
+                    text="",
                     position=phonetic_position,
                     is_phonetic=True
                 ))
 
-                annotations.append(Annotation(
-                    text="",  # 稍后填充
-                    position=definition_position,
-                    is_phonetic=False
-                ))
+                if not only_phonetics:
+                    definition_position = (phys_x, annotation_y + self.line_spacing)
+                    annotations.append(Annotation(
+                        text="",
+                        position=definition_position,
+                        is_phonetic=False
+                    ))
 
         return annotations
 
@@ -447,12 +431,82 @@ class AutoLookup:
 
         self.calibrator = Calibrator()
 
+    def _crop_image(self, image: np.ndarray, crop_x: int, crop_y: int,
+                    crop_w: int, crop_h: int) -> np.ndarray:
+        h, w = image.shape[:2]
+        x1 = max(0, int(crop_x))
+        y1 = max(0, int(crop_y))
+        x2 = min(w, int(crop_x + crop_w))
+        y2 = min(h, int(crop_y + crop_h))
+        return image[y1:y2, x1:x2].copy()
+
+    def _find_phrases(self, word_positions: List['WordPosition']) -> List['WordPosition']:
+        if not word_positions:
+            return word_positions
+
+        sorted_words = sorted(word_positions, key=lambda w: (w.center[1], w.center[0]))
+
+        lines = defaultdict(list)
+        current_line = 0
+        current_y = sorted_words[0].center[1]
+        for w in sorted_words:
+            if abs(w.center[1] - current_y) > 20:
+                current_line += 1
+                current_y = w.center[1]
+            w.line_index = current_line
+            lines[current_line].append(w)
+
+        phrase_map = {}
+        consumed = set()
+        phrase_id = len(word_positions)
+
+        for line_idx in lines:
+            line_words = sorted(lines[line_idx], key=lambda w: w.center[0])
+            for n in (3, 2):
+                for i in range(len(line_words) - n + 1):
+                    if any(id(line_words[i + j]) in consumed for j in range(n)):
+                        continue
+                    phrase_text = ' '.join(line_words[i + j].word for j in range(n))
+                    result = self.word_lookup.lookup(phrase_text.lower())
+                    if result and result.success and result.definitions:
+                        all_x = []
+                        all_y = []
+                        for j in range(n):
+                            word_obj = line_words[i + j]
+                            all_x.extend([word_obj.bbox[k][0] for k in range(len(word_obj.bbox))])
+                            all_y.extend([word_obj.bbox[k][1] for k in range(len(word_obj.bbox))])
+                            consumed.add(id(word_obj))
+
+                        merged_bbox = [
+                            [min(all_x), min(all_y)],
+                            [max(all_x), min(all_y)],
+                            [max(all_x), max(all_y)],
+                            [min(all_x), max(all_y)]
+                        ]
+                        phrase_wp = WordPosition(
+                            word=phrase_text.lower(),
+                            bbox=merged_bbox,
+                            center=((min(all_x) + max(all_x)) / 2, (min(all_y) + max(all_y)) / 2),
+                            line_index=line_idx
+                        )
+                        phrase_map[phrase_id] = phrase_wp
+                        phrase_id += 1
+
+        result_words = [w for w in word_positions if id(w) not in consumed]
+        result_words.extend(phrase_map.values())
+        return result_words
+
     def process_exam_image(
         self,
         image_path: str,
         calibration_path: Optional[str] = None,
         save_gcode_path: Optional[str] = None,
-        save_annotated_image: Optional[str] = None
+        save_annotated_image: Optional[str] = None,
+        crop_x: Optional[int] = None,
+        crop_y: Optional[int] = None,
+        crop_w: Optional[int] = None,
+        crop_h: Optional[int] = None,
+        only_phonetics: bool = False
     ) -> bool:
         """
         处理试卷图片
@@ -462,6 +516,11 @@ class AutoLookup:
             calibration_path: 校准数据路径
             save_gcode_path: Gcode 保存路径
             save_annotated_image: 标注图像保存路径
+            crop_x: 裁剪区域X坐标（像素）
+            crop_y: 裁剪区域Y坐标（像素）
+            crop_w: 裁剪区域宽度（像素）
+            crop_h: 裁剪区域高度（像素）
+            only_phonetics: 是否只写音标
 
         Returns:
             是否成功
@@ -471,7 +530,6 @@ class AutoLookup:
             self.calibrator.load_calibration(calibration_path)
         else:
             print("警告：未提供校准数据，将使用图像坐标")
-            # 创建默认变换矩阵（1:1 映射）
             self.calibrator.transformation_matrix = np.eye(3)
 
         # 2. 读取图像
@@ -479,6 +537,17 @@ class AutoLookup:
         if image is None:
             print(f"错误：无法读取图像 {image_path}")
             return False
+
+        full_image = image.copy()
+        crop_offset_x = 0
+        crop_offset_y = 0
+
+        has_crop = all(v is not None for v in [crop_x, crop_y, crop_w, crop_h])
+        if has_crop and crop_w > 0 and crop_h > 0:
+            crop_offset_x = int(crop_x)
+            crop_offset_y = int(crop_y)
+            image = self._crop_image(image, crop_offset_x, crop_offset_y, int(crop_w), int(crop_h))
+            print(f"✓ 已裁剪到区域: ({crop_offset_x}, {crop_offset_y}, {crop_w}, {crop_h})")
 
         # 3. OCR 识别
         print("\n正在识别文字...")
@@ -501,12 +570,20 @@ class AutoLookup:
         # 5. 转换为 WordPosition
         word_positions = []
         for ocr_result in english_ocr:
+            center_x = ocr_result.center[0] + crop_offset_x
+            center_y = ocr_result.center[1] + crop_offset_y
+            shifted_bbox = [[p[0] + crop_offset_x, p[1] + crop_offset_y] for p in ocr_result.bbox]
             word_positions.append(WordPosition(
                 word=ocr_result.text,
-                bbox=ocr_result.bbox,
-                center=ocr_result.center,
-                line_index=0  # 稍后计算
+                bbox=shifted_bbox,
+                center=(center_x, center_y),
+                line_index=0
             ))
+
+        # 5.5 查找固定搭配（N-Gram）
+        print("\n正在查找固定搭配...")
+        word_positions = self._find_phrases(word_positions)
+        print(f"✓ 处理后共 {len(word_positions)} 个词条（含固定搭配）")
 
         # 6. 查找不会的单词
         print("\n正在查找生词...")
@@ -528,7 +605,8 @@ class AutoLookup:
         # 计算标注位置
         raw_annotations = self.position_calculator.calculate_annotation_positions(
             unknown_words,
-            self.calibrator
+            self.calibrator,
+            only_phonetics=only_phonetics
         )
 
         # 避免重叠
@@ -541,29 +619,30 @@ class AutoLookup:
             result = self.word_lookup.lookup(word_pos.word)
 
             if result.success:
-                # 获取第一个释义
                 definition = result.definitions[0] if result.definitions else ""
                 phonetic = result.phonetic
 
                 print(f"  音标：{phonetic}")
                 print(f"  释义：{definition}")
 
-                # 填充标注
-                if i * 2 < len(adjusted_annotations):
-                    adjusted_annotations[i * 2].text = phonetic
+                if only_phonetics:
+                    if i < len(adjusted_annotations):
+                        adjusted_annotations[i].text = phonetic
+                else:
+                    if i * 2 < len(adjusted_annotations):
+                        adjusted_annotations[i * 2].text = phonetic
+                    if i * 2 + 1 < len(adjusted_annotations):
+                        adjusted_annotations[i * 2 + 1].text = definition
 
-                if i * 2 + 1 < len(adjusted_annotations):
-                    adjusted_annotations[i * 2 + 1].text = definition
-
-                # 在图像上绘制
+                # 在图像上绘制（使用完整图像）
                 if save_annotated_image:
-                    self._draw_annotation(image, word_pos, phonetic, definition)
+                    self._draw_annotation(full_image, word_pos, phonetic, definition, only_phonetics)
             else:
                 print(f"  查询失败：{result.message}")
 
         # 保存标注图像
         if save_annotated_image:
-            cv2.imwrite(save_annotated_image, image)
+            cv2.imwrite(save_annotated_image, full_image)
             print(f"\n✓ 标注图像已保存到：{save_annotated_image}")
 
         # 8. 生成书写 Gcode
@@ -578,20 +657,11 @@ class AutoLookup:
         image: np.ndarray,
         word_pos: WordPosition,
         phonetic: str,
-        definition: str
+        definition: str,
+        only_phonetics: bool = False
     ):
-        """
-        在图像上绘制标注
-
-        Args:
-            image: 图像
-            word_pos: 单词位置
-            phonetic: 音标
-            definition: 释义
-        """
         center = word_pos.center
 
-        # 绘制音标
         cv2.putText(
             image,
             phonetic,
@@ -602,16 +672,16 @@ class AutoLookup:
             1
         )
 
-        # 绘制释义
-        cv2.putText(
-            image,
-            definition,
-            (int(center[0]) - 20, int(center[1]) + 50),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 0, 255),
-            1
-        )
+        if not only_phonetics:
+            cv2.putText(
+                image,
+                definition,
+                (int(center[0]) - 20, int(center[1]) + 50),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 0, 255),
+                1
+            )
 
     def _generate_writing_gcode(self, annotations: List[Annotation], save_path: str):
         """

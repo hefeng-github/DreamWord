@@ -92,8 +92,7 @@ try:
     print('======================================================================')
     print('')
     print('现在可以运行:')
-    print('  python word_lookup.py           # 启动交互界面')
-    print('  python ai_semantic_demo.py      # 查看演示')
+    print('  python app.py                  # 启动 Web 界面（查词将启用语义匹配）')
 
 except ImportError as e:
     print(f'✗ 安装失败: {e}')

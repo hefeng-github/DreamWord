@@ -1,4 +1,3 @@
-```
 # Python
 __pycache__/
 *.py[cod]
@@ -57,13 +56,19 @@ coverage.xml
 .DS_Store
 Thumbs.db
 
-# OneDrive token
+# OneDrive token / backup meta
 onedrive_token.json
 onedrive_config.json
 backup_meta.json
+
+# Runtime data (personal known-words database & calibration cache, generated at runtime)
+known_words.db
+calibration.pkl
+
+# Uploads (runtime generated)
+uploads/
 
 # Testing
 .pytest_cache/
 .mypy_cache/
 .tox/
-```

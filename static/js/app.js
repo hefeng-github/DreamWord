@@ -107,6 +107,10 @@ function previewImage(input, previewId) {
         preview.src = e.target.result;
         preview.classList.remove('hidden');
         preview.style.display = 'inline-block';
+
+        if (previewId === 'lookup-preview') {
+            initLookupCropCanvas(file);
+        }
     };
     reader.readAsDataURL(file);
 }
@@ -904,6 +908,14 @@ function fillListSection(listId, sectionId, items) {
 
 // ==================== 自动查词 ====================
 
+let lookupCropRect = null;
+let lookupCropCanvas = null;
+let lookupCropCtx = null;
+let lookupCropImg = null;
+let lookupCropScale = 1;
+let lookupCropDragging = false;
+let lookupCropStart = { x: 0, y: 0 };
+
 function autoLookup() {
     const imageInput = document.getElementById('lookup-image');
     if (!imageInput.files[0]) return showNotification('请先上传试卷图片', 'error');
@@ -911,6 +923,14 @@ function autoLookup() {
     const fd = new FormData();
     fd.append('image', imageInput.files[0]);
     fd.append('known_words', document.getElementById('known-words-input').value);
+    fd.append('only_phonetics', document.getElementById('only-phonetics').checked ? 'true' : 'false');
+
+    if (lookupCropRect) {
+        fd.append('crop_x', Math.round(lookupCropRect.x));
+        fd.append('crop_y', Math.round(lookupCropRect.y));
+        fd.append('crop_w', Math.round(lookupCropRect.w));
+        fd.append('crop_h', Math.round(lookupCropRect.h));
+    }
 
     apiRequest({
         url: '/api/auto-lookup',
@@ -926,6 +946,106 @@ function autoLookup() {
         }
     });
 }
+
+function initLookupCropCanvas(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        lookupCropImg = new Image();
+        lookupCropImg.onload = function() {
+            const overlay = document.getElementById('lookup-crop-overlay');
+            const canvas = document.getElementById('lookup-crop-canvas');
+            const preview = document.getElementById('lookup-preview');
+
+            preview.style.display = 'none';
+            show('lookup-crop-overlay');
+
+            const maxW = overlay.parentElement.clientWidth - 40 || 800;
+            lookupCropScale = Math.min(maxW / lookupCropImg.width, 1);
+            canvas.width = lookupCropImg.width * lookupCropScale;
+            canvas.height = lookupCropImg.height * lookupCropScale;
+            canvas.style.width = canvas.width + 'px';
+            canvas.style.height = canvas.height + 'px';
+
+            lookupCropCanvas = canvas;
+            lookupCropCtx = canvas.getContext('2d');
+            lookupCropRect = null;
+            drawLookupCropCanvas();
+        };
+        lookupCropImg.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function drawLookupCropCanvas() {
+    if (!lookupCropCtx || !lookupCropImg) return;
+    const ctx = lookupCropCtx;
+    const canvas = lookupCropCanvas;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(lookupCropImg, 0, 0, canvas.width, canvas.height);
+
+    if (lookupCropRect) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.clearRect(lookupCropRect.x, lookupCropRect.y, lookupCropRect.w, lookupCropRect.h);
+        ctx.drawImage(lookupCropImg,
+            lookupCropRect.x / lookupCropScale, lookupCropRect.y / lookupCropScale,
+            lookupCropRect.w / lookupCropScale, lookupCropRect.h / lookupCropScale,
+            lookupCropRect.x, lookupCropRect.y, lookupCropRect.w, lookupCropRect.h
+        );
+
+        ctx.strokeStyle = '#1890ff';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 3]);
+        ctx.strokeRect(lookupCropRect.x, lookupCropRect.y, lookupCropRect.w, lookupCropRect.h);
+        ctx.setLineDash([]);
+
+        document.getElementById('crop-info-text').textContent =
+            `框选区域: ${Math.round(lookupCropRect.x / lookupCropScale)}, ${Math.round(lookupCropRect.y / lookupCropScale)} - ${Math.round(lookupCropRect.w / lookupCropScale)}x${Math.round(lookupCropRect.h / lookupCropScale)} px`;
+    } else {
+        document.getElementById('crop-info-text').textContent = '拖动鼠标框选查词区域（默认全部）';
+    }
+}
+
+function clearCropSelection() {
+    lookupCropRect = null;
+    drawLookupCropCanvas();
+}
+
+(function() {
+    document.addEventListener('mousedown', function(e) {
+        if (e.target !== lookupCropCanvas) return;
+        lookupCropDragging = true;
+        const rect = lookupCropCanvas.getBoundingClientRect();
+        lookupCropStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        lookupCropRect = null;
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!lookupCropDragging || !lookupCropCanvas) return;
+        const rect = lookupCropCanvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        lookupCropRect = {
+            x: Math.min(lookupCropStart.x, mx),
+            y: Math.min(lookupCropStart.y, my),
+            w: Math.abs(mx - lookupCropStart.x),
+            h: Math.abs(my - lookupCropStart.y)
+        };
+        drawLookupCropCanvas();
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (lookupCropDragging) {
+            lookupCropDragging = false;
+            if (lookupCropRect && (lookupCropRect.w < 5 || lookupCropRect.h < 5)) {
+                lookupCropRect = null;
+                drawLookupCropCanvas();
+            }
+        }
+    });
+})();
 
 // ==================== 自动抄写 ====================
 
@@ -971,6 +1091,21 @@ function writeText() {
 }
 
 // ==================== 校准与标记 ====================
+
+function generateCornerMarkers() {
+    apiRequest({
+        url: '/api/generate-corner-markers',
+        json: {
+            frame_width: parseFloat(document.getElementById('corner-frame-width').value),
+            frame_height: parseFloat(document.getElementById('corner-frame-height').value),
+            marker_size: parseFloat(document.getElementById('corner-marker-size').value)
+        },
+        onSuccess(data) {
+            showResultElement('corner-markers-result', 'corner-markers-preview', data.download_url, 'corner-markers-download', data.download_url);
+            showNotification(data.message || '四角标记定位纸生成成功！', 'success');
+        }
+    });
+}
 
 function calibrate() {
     const imageInput = document.getElementById('calib-image');
@@ -1215,6 +1350,7 @@ function updateLastPositionInfo() {
 // ==================== 串口通信（直接发送Gcode） ====================
 
 let serialPollTimer = null;
+let calibCheckTimer = null;
 
 async function serialRefreshPorts() {
     try {
@@ -1312,10 +1448,88 @@ function startSerialPoll() {
                     document.getElementById('serial-progress-text').textContent = data.message;
                     setTimeout(() => { hide('serial-progress-bar'); }, 3000);
                 }
-                if (!data.sending) stopSerialPoll();
+                if (!data.sending) {
+                    stopSerialPoll();
+                    stopCalibCheck();
+                }
             }
         } catch {}
     }, 1000);
+
+    const autoCheck = document.getElementById('auto-calib-check');
+    if (autoCheck && autoCheck.checked) {
+        startCalibCheck();
+    }
+}
+
+function startCalibCheck() {
+    stopCalibCheck();
+    const intervalSec = parseInt(document.getElementById('calib-check-interval').value) || 30;
+    calibCheckTimer = setInterval(async () => {
+        try {
+            const resp = await fetch(API_BASE + '/api/serial/status');
+            const data = await resp.json();
+            if (!data.sending) {
+                stopCalibCheck();
+                return;
+            }
+
+            const statusResp = await fetch(API_BASE + '/api/check-calibration', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const calibData = await statusResp.json();
+
+            if (calibData.success && !calibData.ok) {
+                await fetch(API_BASE + '/api/serial/pause', { method: 'POST' });
+                showCalibWarning(calibData.warning || '检测到纸张位置偏移，请重新校准');
+                stopCalibCheck();
+            }
+        } catch {}
+    }, intervalSec * 1000);
+}
+
+function stopCalibCheck() {
+    if (calibCheckTimer) {
+        clearInterval(calibCheckTimer);
+        calibCheckTimer = null;
+    }
+}
+
+function showCalibWarning(message) {
+    const overlay = document.createElement('div');
+    overlay.className = 'calib-warning-overlay';
+    overlay.id = 'calib-warning-modal';
+    overlay.innerHTML = `
+        <div class="calib-warning-box">
+            <h3>⚠️ 定位异常提醒</h3>
+            <p>${message}</p>
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="dismissCalibWarningAndResume()">已校准，继续书写</button>
+                <button class="btn btn-secondary" onclick="dismissCalibWarning()">停止书写</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+function dismissCalibWarning() {
+    const modal = document.getElementById('calib-warning-modal');
+    if (modal) modal.remove();
+}
+
+function dismissCalibWarningAndResume() {
+    dismissCalibWarning();
+    apiRequest({
+        url: '/api/serial/resume',
+        onSuccess() {
+            showNotification('已恢复书写', 'success');
+            const autoCheck = document.getElementById('auto-calib-check');
+            if (autoCheck && autoCheck.checked) {
+                startCalibCheck();
+            }
+        }
+    });
 }
 
 function stopSerialPoll() {
@@ -1323,6 +1537,7 @@ function stopSerialPoll() {
         clearInterval(serialPollTimer);
         serialPollTimer = null;
     }
+    stopCalibCheck();
 }
 
 // ==================== 初始化 ====================

@@ -79,7 +79,6 @@ echo.
 echo 下一步：
 echo   1. 启动Web服务器：python app.py
 echo   2. 浏览器访问：http://127.0.0.1:5000
-echo   3. 或运行测试：python test_web.py
 echo.
 echo 可选安装：
 echo   - AI语义匹配：运行 install_ai_semantic.bat

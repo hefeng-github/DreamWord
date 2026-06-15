@@ -274,6 +274,12 @@ def api_auto_lookup():
             return error_response
         known_words = request.form.get('known_words', '')
 
+        crop_x = request.form.get('crop_x', type=int)
+        crop_y = request.form.get('crop_y', type=int)
+        crop_w = request.form.get('crop_w', type=int)
+        crop_h = request.form.get('crop_h', type=int)
+        only_phonetics = request.form.get('only_phonetics', 'false').lower() == 'true'
+
         # 处理
         auto_lookup = AutoLookup()
 
@@ -291,9 +297,14 @@ def api_auto_lookup():
 
         success = auto_lookup.process_exam_image(
             image_path=filepath,
-            calibration_path=None,  # 暂时不使用校准
+            calibration_path=None,
             save_gcode_path=gcode_path,
-            save_annotated_image=annotated_path
+            save_annotated_image=annotated_path,
+            crop_x=crop_x,
+            crop_y=crop_y,
+            crop_w=crop_w,
+            crop_h=crop_h,
+            only_phonetics=only_phonetics
         )
 
         if success:
@@ -534,6 +545,9 @@ def api_remove_known_word():
 _serial_port = None
 _serial_lock = threading.Lock()
 _serial_status = {'connected': False, 'port': '', 'sending': False, 'progress': 0, 'total': 0, 'message': ''}
+_serial_paused = False
+
+_last_calibration_matrix = None
 
 
 def _serial_connect(port: str, baudrate: int = 115200) -> bool:
@@ -566,16 +580,23 @@ def _serial_disconnect():
 
 
 def _serial_send_gcode(gcode_content: str):
-    global _serial_port
+    global _serial_port, _serial_paused
     lines = [l.strip() for l in gcode_content.split('\n') if l.strip() and not l.strip().startswith(';')]
     total = len(lines)
     _serial_status['sending'] = True
     _serial_status['progress'] = 0
     _serial_status['total'] = total
     _serial_status['message'] = f'发送中 0/{total}'
+    _serial_paused = False
 
     try:
         for i, line in enumerate(lines):
+            while _serial_paused:
+                import time; time.sleep(0.1)
+                if not _serial_status['sending']:
+                    break
+            if not _serial_status['sending']:
+                break
             if not _serial_port or not _serial_port.is_open:
                 _serial_status['message'] = '串口已断开'
                 break
@@ -593,6 +614,7 @@ def _serial_send_gcode(gcode_content: str):
         _serial_status['message'] = f'发送失败: {e}'
     finally:
         _serial_status['sending'] = False
+        _serial_paused = False
 
 
 @app.route('/api/serial/ports', methods=['GET'])
@@ -655,6 +677,123 @@ def api_serial_send():
         thread = threading.Thread(target=_serial_send_gcode, args=(gcode_content,), daemon=True)
         thread.start()
         return jsonify({'success': True, 'message': '开始发送Gcode'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/serial/pause', methods=['POST'])
+def api_serial_pause():
+    global _serial_paused
+    if not _serial_status['connected']:
+        return _error('串口未连接')
+    if not _serial_status['sending']:
+        return _error('当前未在发送')
+    _serial_paused = True
+    try:
+        with _serial_lock:
+            if _serial_port and _serial_port.is_open:
+                _serial_port.write(b'!\n')
+    except Exception:
+        pass
+    return jsonify({'success': True, 'message': '已暂停发送'})
+
+
+@app.route('/api/serial/resume', methods=['POST'])
+def api_serial_resume():
+    global _serial_paused
+    if not _serial_status['connected']:
+        return _error('串口未连接')
+    _serial_paused = False
+    try:
+        with _serial_lock:
+            if _serial_port and _serial_port.is_open:
+                _serial_port.write(b'~\n')
+    except Exception:
+        pass
+    return jsonify({'success': True, 'message': '已恢复发送'})
+
+
+@app.route('/api/generate-corner-markers', methods=['POST'])
+def api_generate_corner_markers():
+    try:
+        data = _json_data()
+        frame_width = float(data.get('frame_width', 220.0))
+        frame_height = float(data.get('frame_height', 310.0))
+        marker_size = float(data.get('marker_size', 30.0))
+        margin = float(data.get('margin', 5.0))
+
+        calibrator = Calibrator(marker_size=marker_size)
+        filename = f"corner_markers_{uuid.uuid4().hex[:8]}.png"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+        calibrator.generate_corner_marker_paper(
+            frame_width_mm=frame_width,
+            frame_height_mm=frame_height,
+            marker_size_mm=marker_size,
+            margin_mm=margin,
+            save_path=filepath
+        )
+
+        return jsonify({
+            'success': True,
+            'filename': filename,
+            'download_url': f'/api/download/{filename}',
+            'message': f'四角标记定位纸已生成 ({frame_width}x{frame_height}mm)'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/check-calibration', methods=['POST'])
+def api_check_calibration():
+    global _last_calibration_matrix
+    try:
+        filepath, error_response = _save_uploaded_image('image')
+        if error_response:
+            return error_response
+
+        import cv2
+        image = cv2.imread(filepath)
+        if image is None:
+            return _error('无法读取图片')
+
+        calibrator = Calibrator()
+        new_image_points = calibrator.detect_markers(image)
+
+        if len(new_image_points) < 3:
+            return jsonify({
+                'success': True,
+                'ok': False,
+                'warning': f'仅检测到 {len(new_image_points)} 个标记，无法检查'
+            })
+
+        if _last_calibration_matrix is None:
+            _last_calibration_matrix = calibrator.transformation_matrix
+            return jsonify({
+                'success': True,
+                'ok': True,
+                'message': '首次检测，已记录初始矩阵'
+            })
+
+        result = calibrator.check_matrix_variance(
+            new_matrix=calibrator.transformation_matrix
+        )
+
+        if result.get('valid'):
+            return jsonify({
+                'success': True,
+                'ok': result['ok'],
+                'translation_mm': result['translation_mm'],
+                'rotation_deg': result['rotation_deg'],
+                'warning': result.get('warning')
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'ok': False,
+                'warning': result.get('error', '检查失败')
+            })
+
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 

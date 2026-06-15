@@ -390,5 +390,86 @@ class Calibrator:
         plt.savefig(preview_path, dpi=150, bbox_inches='tight')
         plt.close()
 
+    def generate_corner_marker_paper(self, frame_width_mm: float, frame_height_mm: float,
+                                      marker_size_mm: float = 30.0, margin_mm: float = 5.0,
+                                      save_path: Optional[str] = None) -> np.ndarray:
+        dpi = 300
+        mm_to_px = dpi / 25.4
+        paper_w_px = int(frame_width_mm * mm_to_px)
+        paper_h_px = int(frame_height_mm * mm_to_px)
+        marker_px = int(marker_size_mm * mm_to_px)
+        margin_px = int(margin_mm * mm_to_px)
+
+        paper = np.ones((paper_h_px, paper_w_px), dtype=np.uint8) * 255
+
+        aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
+        corners = [
+            (margin_px, margin_px),
+            (paper_w_px - margin_px - marker_px, margin_px),
+            (paper_w_px - margin_px - marker_px, paper_h_px - margin_px - marker_px),
+            (margin_px, paper_h_px - margin_px - marker_px),
+        ]
+
+        for i, (cx, cy) in enumerate(corners):
+            marker_img = cv2.aruco.generateImage(aruco_dict, i, marker_px)
+            paper[cy:cy + marker_px, cx:cx + marker_px] = marker_img
+
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            label = f"ID:{i}"
+            text_size = cv2.getTextSize(label, font, 0.4, 1)[0]
+            cv2.putText(paper, label, (cx + (marker_px - text_size[0]) // 2,
+                                       cy + marker_px + text_size[1] + 4),
+                        font, 0.4, 0, 1, cv2.LINE_AA)
+
+        frame_pts = np.array([
+            [margin_px // 2, margin_px // 2],
+            [paper_w_px - margin_px // 2, margin_px // 2],
+            [paper_w_px - margin_px // 2, paper_h_px - margin_px // 2],
+            [margin_px // 2, paper_h_px - margin_px // 2]
+        ], dtype=np.int32)
+        cv2.polylines(paper, [frame_pts], True, 0, 2)
+
+        if save_path:
+            cv2.imwrite(save_path, paper)
+            print(f"✓ 四角标记定位纸已保存到：{save_path}")
+
+        return paper
+
+    def check_matrix_variance(self, new_matrix: np.ndarray,
+                               threshold_mm: float = 2.0,
+                               threshold_deg: float = 2.0) -> Dict[str, Any]:
+        if self.transformation_matrix is None:
+            return {'valid': False, 'error': '未进行初始校准'}
+
+        old_mat = self.transformation_matrix
+        if old_mat.shape == (2, 3):
+            old_mat = np.vstack([old_mat, [0, 0, 1]])
+        if new_matrix.shape == (2, 3):
+            new_matrix = np.vstack([new_matrix, [0, 0, 1]])
+
+        try:
+            diff_mat = new_matrix @ np.linalg.inv(old_mat)
+        except np.linalg.LinAlgError:
+            return {'valid': False, 'error': '矩阵求逆失败'}
+
+        tx = diff_mat[0, 2]
+        ty = diff_mat[1, 2]
+        translation_mm = np.sqrt(tx ** 2 + ty ** 2)
+
+        angle_rad = np.arctan2(diff_mat[1, 0], diff_mat[0, 0])
+        angle_deg = np.degrees(angle_rad)
+
+        is_ok = translation_mm <= threshold_mm and abs(angle_deg) <= threshold_deg
+
+        return {
+            'valid': True,
+            'ok': is_ok,
+            'translation_mm': round(translation_mm, 3),
+            'rotation_deg': round(angle_deg, 3),
+            'threshold_mm': threshold_mm,
+            'threshold_deg': threshold_deg,
+            'warning': None if is_ok else f'位置偏移 {translation_mm:.1f}mm / 旋转 {angle_deg:.1f}° 超过阈值，请重新校准'
+        }
+
 
 __all__ = ['ArUcoMarkerGenerator', 'ImageUnwarp', 'Calibrator']

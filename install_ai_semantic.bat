@@ -74,8 +74,7 @@ if errorlevel 1 (
     echo ======================================================================
     echo.
     echo 现在可以运行:
-    echo   python word_lookup.py           # 启动交互界面
-    echo   python ai_semantic_demo.py      # 查看演示
+    echo   python app.py                  # 启动 Web 界面（查词将启用语义匹配）
 )
 
 echo.

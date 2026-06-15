@@ -20,13 +20,6 @@ from collections import Counter
 from pathlib import Path
 
 try:
-    from nltk.stem import WordNetLemmatizer
-    from nltk.corpus import wordnet
-    NLTK_AVAILABLE = True
-except ImportError:
-    NLTK_AVAILABLE = False
-
-try:
     from sentence_transformers import SentenceTransformer
     import torch
     import numpy as np
@@ -249,9 +242,7 @@ class WordLookup:
     def __init__(self, use_semantic_search: bool = True, model_name: str = None):
         self.db_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'databases')
         self.word_details_path = os.path.join(self.db_dir, 'word_details.db')
-        self.lemmatizer = self._init_lemmatizer()
 
-        # 初始化语义模型
         self.use_semantic_search = use_semantic_search and SENTENCE_TRANSFORMER_AVAILABLE
         self.model_name = model_name or self.DEFAULT_MODEL
         self.semantic_model = None
@@ -259,25 +250,6 @@ class WordLookup:
 
         if self.use_semantic_search:
             self._init_semantic_model()
-
-    def _init_lemmatizer(self) -> Optional[WordNetLemmatizer]:
-        """初始化词形还原器"""
-        if not NLTK_AVAILABLE:
-            return None
-
-        try:
-            lemmatizer = WordNetLemmatizer()
-            # 验证 WordNet 数据是否可用
-            try:
-                wordnet.synsets('test')
-            except LookupError:
-                print("警告：未找到 WordNet 数据，请运行以下命令安装:")
-                print("import nltk; nltk.download('wordnet'); nltk.download('omw-1.4')")
-                return None
-            return lemmatizer
-        except Exception as e:
-            print(f"初始化词形还原器失败：{e}")
-            return None
 
     def _init_semantic_model(self):
         """初始化语义模型"""
@@ -473,27 +445,6 @@ class WordLookup:
 
         return None
 
-    def get_word_base_form_nltk(self, word: str) -> Optional[str]:
-        """使用 NLTK 获取单词的基本形式"""
-        if not NLTK_AVAILABLE or not self.lemmatizer:
-            return None
-
-        word_exists = self.word_exists(word)
-
-        # 尝试不同的词性进行词形还原
-        pos_tags = ['n', 'v', 'a', 'r']
-        for pos in pos_tags:
-            lemma = self.lemmatizer.lemmatize(word, pos)
-            if lemma != word and not word_exists and self.word_exists(lemma):
-                return lemma
-
-        # 默认词形还原
-        default_lemma = self.lemmatizer.lemmatize(word)
-        if default_lemma != word and not word_exists and self.word_exists(default_lemma):
-            return default_lemma
-
-        return None
-
     def get_word_base_form_simple(self, word: str) -> Optional[str]:
         """使用简单规则获取单词的基本形式"""
         word_exists = self.word_exists(word)
@@ -569,18 +520,10 @@ class WordLookup:
 
     def get_word_base_form(self, word: str) -> Optional[str]:
         """获取单词的基本形式"""
-        # 优先使用数据库链接信息
         base_form = self.get_base_form_from_db(word)
         if base_form:
             return base_form
 
-        # 然后尝试 NLTK
-        if NLTK_AVAILABLE and self.lemmatizer:
-            base_form = self.get_word_base_form_nltk(word)
-            if base_form:
-                return base_form
-
-        # 最后尝试简单规则
         return self.get_word_base_form_simple(word)
 
     def tokenize(self, text: str) -> List[str]:
@@ -937,7 +880,7 @@ class WordLookup:
     def _resolve_word_form(self, word: str) -> Tuple[str, Optional[str]]:
         """
         解析单词形式，返回 (查找用词，基本形式)
-        优先级：数据库链接 > NLTK > 简单规则
+        优先级：数据库链接 > 简单规则
         """
         # 检查单词是否存在
         if self.word_exists(word):
