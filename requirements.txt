@@ -3,10 +3,24 @@ requests>=2.31.0
 # 图像处理和OCR
 opencv-python>=4.8.0
 opencv-contrib-python>=4.8.0
-paddlepaddle>=2.5.0
-paddleocr>=2.7.0
 pillow>=10.0.0
 numpy>=1.24.0
+
+# ====== PaddlePaddle / PaddleOCR（OCR 功能所需）======
+# 代码已同时兼容 PaddleOCR 2.x 与 3.x（PP-OCRv5/v6）。
+# 注意：PaddlePaddle 3.0 仅提供 Python 3.9–3.13 的预编译包，不支持 3.14。
+#
+# —— CPU 版（默认，无 N 卡时用）——
+paddlepaddle>=3.0.0
+paddleocr>=3.0.0
+#
+# —— GPU 版（需要 NVIDIA 显卡 + CUDA，CPU 版与 GPU 版二选一）——
+# 先卸载 CPU 版：pip uninstall paddlepaddle
+# 再按你的 CUDA 版本从官方索引安装，例如 CUDA 12.x：
+#   pip install paddlepaddle-gpu==3.0.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
+# 装完后注释掉上面的 paddlepaddle 行，改用：
+# paddlepaddle-gpu>=3.0.0
+# paddleocr>=3.0.0
 
 # 手写体生成
 handright>=1.2.0

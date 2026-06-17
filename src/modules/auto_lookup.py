@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from collections import defaultdict
 
 try:
-    import torch
     from paddleocr import PaddleOCR
     PADDLEOCR_AVAILABLE = True
 except ImportError:
@@ -188,11 +187,35 @@ class TextExtractor:
 
         try:
             print("正在初始化 PaddleOCR...")
-            self.ocr = PaddleOCR(
-                use_angle_cls=use_angle_cls,
-                lang=lang,
-                show_log=False
-            )
+            # PaddleOCR 3.x (PP-OCRv5/v6) 与 2.x 参数不同：
+            #   - use_angle_cls -> use_textline_orientation
+            #   - show_log 已移除
+            # 这里做双版本兼容，按是否暴露新参数自动选择。
+            import inspect
+            import os as _os
+            init_kwargs = dict(lang=lang)
+            sig_params = set(inspect.signature(PaddleOCR.__init__).parameters.keys())
+            is_v3 = 'use_textline_orientation' in sig_params
+            if is_v3:
+                # PaddleOCR 3.x
+                init_kwargs['use_textline_orientation'] = use_angle_cls
+                # 实测：paddlepaddle 3.3.1 的 oneDNN 后端对 PP-OCRv6 检测模型
+                # 某算子属性有 bug（ConvertPirAttribute2RuntimeAttribute
+                # not support ArrayAttribute<DoubleAttribute>），predict 会抛
+                # NotImplementedError。通过 enable_mkldnn=False 让 CPU 走纯 paddle
+                # 推理即可绕过。enable_mkldnn 是 PaddleOCR 3.x 透传给底层 runner
+                # 的参数（2.x 没有这个参数）。
+                init_kwargs['enable_mkldnn'] = False
+                # 纯 paddle CPU 推理较慢，尽量用满线程
+                init_kwargs['cpu_threads'] = _os.cpu_count() or 8
+                # 英文试卷 OCR 不需要文档方向分类和文档去畸变，关掉可显著加速
+                init_kwargs['use_doc_orientation_classify'] = False
+                init_kwargs['use_doc_unwarping'] = False
+            else:
+                # PaddleOCR 2.x
+                init_kwargs['use_angle_cls'] = use_angle_cls
+                init_kwargs['show_log'] = False
+            self.ocr = PaddleOCR(**init_kwargs)
             print("✓ PaddleOCR 初始化成功")
         except Exception as e:
             print(f"PaddleOCR 初始化失败：{e}")
@@ -218,43 +241,85 @@ class TextExtractor:
 
         # 图像矫正
         if unwarp:
-            image = self.unwarper.unwarp_image(image)
+            image = self.unwarper.unwarp_image_auto(image)
 
         try:
-            # 执行 OCR
-            result = self.ocr.ocr(image, cls=True)
+            # 执行 OCR：3.x 用 predict，2.x 用 ocr(cls=True)
+            if hasattr(self.ocr, 'predict'):
+                raw_results = self.ocr.predict(image)
+            else:
+                raw_results = self.ocr.ocr(image, cls=True)
 
-            if not result or not result[0]:
-                print("未检测到文字")
-                return []
-
-            # 解析结果
-            ocr_results = []
-            for line in result[0]:
-                bbox = line[0]  # 边界框
-                text_info = line[1]  # (文本，置信度)
-
-                text = text_info[0]
-                confidence = text_info[1]
-
-                # 计算中心点
-                points = np.array(bbox)
-                center_x = float(np.mean(points[:, 0]))
-                center_y = float(np.mean(points[:, 1]))
-
-                ocr_results.append(OCRResult(
-                    text=text,
-                    bbox=bbox,
-                    confidence=confidence,
-                    center=(center_x, center_y)
-                ))
-
+            ocr_results = self._parse_ocr_results(raw_results)
             print(f"✓ 识别到 {len(ocr_results)} 个文本块")
             return ocr_results
 
         except Exception as e:
             print(f"OCR 识别失败：{e}")
             return []
+
+    def _parse_ocr_results(self, raw_results) -> List[OCRResult]:
+        """
+        将 PaddleOCR 的原始返回解析为统一的 OCRResult 列表。
+
+        兼容两种结构：
+          - PaddleOCR 2.x: [[ [bbox, (text, score)], ... ]]
+          - PaddleOCR 3.x: list of result objects，每个含
+            rec_texts / dt_polys / rec_scores 字段
+        """
+        if not raw_results:
+            print("未检测到文字")
+            return []
+
+        ocr_results: List[OCRResult] = []
+
+        for page in raw_results:
+            if page is None:
+                continue
+
+            # ---------- 3.x 结构化对象 ----------
+            # dict-like，支持键访问；dt_polys 形状 [N, 4, 2]
+            if hasattr(page, 'keys') or isinstance(page, dict):
+                texts = page.get('rec_texts') if hasattr(page, 'get') else page['rec_texts']
+                polys = page.get('dt_polys') if hasattr(page, 'get') else page['dt_polys']
+                scores = page.get('rec_scores') if hasattr(page, 'get') else page['rec_scores']
+
+                if not texts:
+                    continue
+
+                for text, poly, score in zip(texts, polys, scores):
+                    bbox = [[float(p[0]), float(p[1])] for p in poly]
+                    points = np.array(bbox)
+                    center_x = float(np.mean(points[:, 0]))
+                    center_y = float(np.mean(points[:, 1]))
+                    ocr_results.append(OCRResult(
+                        text=text,
+                        bbox=bbox,
+                        confidence=float(score),
+                        center=(center_x, center_y)
+                    ))
+                continue
+
+            # ---------- 2.x 嵌套 list ----------
+            # page 形如 [[bbox, (text, score)], ...]
+            try:
+                for line in page:
+                    bbox = line[0]
+                    text, confidence = line[1]
+                    points = np.array(bbox)
+                    center_x = float(np.mean(points[:, 0]))
+                    center_y = float(np.mean(points[:, 1]))
+                    ocr_results.append(OCRResult(
+                        text=text,
+                        bbox=bbox,
+                        confidence=confidence,
+                        center=(center_x, center_y)
+                    ))
+            except (KeyError, IndexError, TypeError):
+                # 非预期结构，跳过该 page
+                continue
+
+        return ocr_results
 
     def filter_english_words(self, ocr_results: List[OCRResult]) -> List[OCRResult]:
         """

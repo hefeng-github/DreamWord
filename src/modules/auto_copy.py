@@ -15,13 +15,9 @@ from typing import List, Tuple, Optional
 from dataclasses import dataclass
 import re
 
-try:
-    import torch
-    from paddleocr import PaddleOCR
-    PADDLEOCR_AVAILABLE = True
-except ImportError:
-    PADDLEOCR_AVAILABLE = False
-    print("警告：PaddleOCR 未安装")
+# 注：本模块只检测横线 + 抄写用户输入文字，不调用 OCR。
+# 早先这里 import 了 PaddleOCR 但全程未使用，反而会在未安装 paddle 时
+# 导致整个模块 import 失败，故移除。
 
 from src.modules.calibration import Calibrator, ImageUnwarp
 from src.modules.writer import WriterMachine
@@ -390,7 +386,7 @@ class AutoCopy:
 
         # 3. 图像矫正
         print("\n正在矫正图像...")
-        unwarp_image = self.unwarper.unwarp_image(image)
+        unwarp_image = self.unwarper.unwarp_image_auto(image)
 
         # 4. 检测横线
         print("\n正在检测横线...")

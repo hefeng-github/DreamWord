@@ -11,7 +11,7 @@
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Any
 import pickle
 
 from src.core import SystemConfig
@@ -144,6 +144,21 @@ class ImageUnwarp:
         warped = cv2.warpPerspective(image, matrix, output_size)
 
         return warped
+
+    def unwarp_image_auto(self, image: np.ndarray) -> np.ndarray:
+        """
+        无角点信息时的直通处理：不做透视矫正，原样返回图像。
+
+        当调用方没有四个角点坐标（例如自动查词/自动抄写流程）时使用。
+        保留 unwarper 接口是为了将来接入自动角点检测时的占位。
+
+        Args:
+            image: 输入图像
+
+        Returns:
+            原样返回的图像（未矫正）
+        """
+        return image
 
 
 class Calibrator:
