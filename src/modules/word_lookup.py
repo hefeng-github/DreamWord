@@ -877,14 +877,26 @@ class WordLookup:
         best_entry = scored_entries[0][1]
         return best_entry if not return_scores else (best_entry, scored_entries)
 
-    def _resolve_word_form(self, word: str) -> Tuple[str, Optional[str]]:
+    def _resolve_word_form(self, word: str, context: str = "") -> Tuple[str, Optional[str]]:
         """
         解析单词形式，返回 (查找用词，基本形式)
         优先级：数据库链接 > 简单规则
+
+        当提供 context 时，会额外用形态规则推断该词可能是某个基本形式
+        的变形（如 found→find、left→leave、reading→read），以便后续在
+        原词释义与基本形式释义中按语境择优。这解决了"既是独立词又是变形"
+        的词在句子语境下选错释义的问题（例如 found 在 "I found it" 中应
+        取 find 的释义，而非 found 自己的"创建"释义）。
         """
         # 检查单词是否存在
         if self.word_exists(word):
             base_form = self.get_base_form_from_db(word)
+            # 有语境时，即使原词存在，也尝试用形态规则推断它是否可能是
+            # 别的词的变形（数据库 base_form 链接常常缺失这类信息）。
+            if context and not base_form:
+                inferred = self._infer_inflection_base(word)
+                if inferred:
+                    base_form = inferred
             return word, base_form
 
         # 尝试获取基本形式
@@ -893,6 +905,71 @@ class WordLookup:
             return base_form, base_form
 
         return word, None
+
+    def _infer_inflection_base(self, word: str) -> Optional[str]:
+        """
+        用形态规则推断 word 可能是哪个基本形式的变形。
+
+        与 get_word_base_form_simple 不同，本方法【不要求原词不存在】——
+        专门用于"原词本身就是合法词条、但在语境中其实是变形"的情况
+        （found/leave→left/reading 等）。
+
+        只返回在词典中确实存在、且与原词不同的候选；若多个候选则取第一个。
+        """
+        word_lower = word.lower()
+        candidates: List[str] = []
+
+        # 不规则变形
+        special_cases = {
+            'ran': 'run', 'bit': 'bite', 'ate': 'eat', 'drove': 'drive',
+            'saw': 'see', 'fell': 'fall', 'gave': 'give', 'knew': 'know',
+            'thought': 'think', 'threw': 'throw', 'came': 'come', 'went': 'go',
+            'bought': 'buy', 'brought': 'bring', 'caught': 'catch',
+            'fought': 'fight', 'taught': 'teach', 'sought': 'seek',
+            'bent': 'bend', 'bound': 'bind', 'built': 'build',
+            'dealt': 'deal', 'felt': 'feel', 'held': 'hold',
+            'kept': 'keep', 'led': 'lead', 'lost': 'lose',
+            'meant': 'mean', 'paid': 'pay', 'sold': 'sell',
+            'sent': 'send', 'spent': 'spend', 'stood': 'stand',
+            'understood': 'understand', 'won': 'win', 'wound': 'wind',
+            # 既是独立词又是变形的高频词
+            'found': 'find', 'left': 'leave', 'lay': 'lie',
+            'bore': 'bear', 'tore': 'tear', 'wore': 'wear',
+            'spoke': 'speak', 'broke': 'break', 'stole': 'steal',
+            'chose': 'choose', 'froze': 'freeze', 'rose': 'rise',
+            'woke': 'wake', 'drew': 'draw', 'flew': 'fly',
+            'slid': 'slide', 'hid': 'hide', 'rode': 'ride',
+        }
+        if word_lower in special_cases:
+            candidates.append(special_cases[word_lower])
+
+        # 规则变形：-ed / -ing / -s
+        if word.endswith('ed') and len(word) > 3:
+            base = word[:-2]
+            if len(base) > 1 and base[-1] == base[-2]:
+                base = base[:-1]
+            elif len(base) > 1 and base.endswith('i'):
+                base = base[:-1] + 'y'
+            candidates.append(base)
+            candidates.append(base + 'e')
+
+        if word.endswith('ing') and len(word) > 4:
+            base = word[:-3]
+            if len(base) > 1 and base[-1] == base[-2]:
+                base = base[:-1]
+            candidates.append(base)
+            candidates.append(base + 'e')
+
+        if word.endswith('es') and len(word) > 3:
+            candidates.append(word[:-2])
+        elif word.endswith('s') and len(word) > 2 and not word.endswith('ss'):
+            candidates.append(word[:-1])
+
+        # 只保留在词典中存在、且与原词不同的候选
+        for cand in candidates:
+            if cand and cand.lower() != word_lower and self.word_exists(cand):
+                return cand
+        return None
 
     def _get_phonetics(self, entry: WordEntry, base_entry: Optional[WordEntry] = None) -> List[str]:
         """获取音标，优先使用基本形式的音标"""
@@ -925,8 +1002,8 @@ class WordLookup:
         if not word:
             return LookupResult(success=False, word="", message="请输入要查询的单词")
 
-        # 解析单词形式
-        lookup_word, base_form = self._resolve_word_form(word)
+        # 解析单词形式（有 context 时会额外推断变形基本形式）
+        lookup_word, base_form = self._resolve_word_form(word, context)
 
         # 如果找不到基本形式，返回错误
         if not self.word_exists(lookup_word):
@@ -954,7 +1031,18 @@ class WordLookup:
             # 关键修复：使用 base_form 重新查询数据库获取完整内容
             base_entries = self.get_word_entries(base_form)
             if base_entries:
-                base_entry = self.find_best_match(base_entries, "")  # 找第一个有释义的条目
+                # 当 base_form 是形态规则推断出来的（即原词本身也是合法词条，
+                # 如 found 既指"创建"又是 find 的过去式）时，原词条目和变形
+                # 基本形式条目都可能是正确释义。把它们合并后按语境择优，
+                # 而不是只取基本形式的第一个条目。
+                if context and self.word_exists(lookup_word):
+                    merged_entries = list(entries) + list(base_entries)
+                    best_entry = self.find_best_match(merged_entries, context)
+                    # 若选中的来自基本形式，标记 base_entry 以便后续音标/例句复用
+                    if best_entry in base_entries:
+                        base_entry = best_entry
+                else:
+                    base_entry = self.find_best_match(base_entries, "")  # 找第一个有释义的条目
 
         # 检查 best_entry 是否为空条目（没有释义和例句）
         best_entry_is_empty = (
@@ -1036,8 +1124,8 @@ class WordLookup:
         word = word.strip()
         context = context.strip()
 
-        # 解析单词形式
-        lookup_word, base_form = self._resolve_word_form(word)
+        # 解析单词形式（有 context 时会额外推断变形基本形式）
+        lookup_word, base_form = self._resolve_word_form(word, context)
 
         if not self.word_exists(lookup_word):
             return LookupResult(
