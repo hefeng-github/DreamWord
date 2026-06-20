@@ -1,0 +1,64 @@
+name: Build Android APK
+
+# 触发条件：
+#   - push 到 main 且改动 android/ 或 workflow 本身
+#   - 在 Actions 页面手动点 "Run workflow"
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'android/**'
+      - '.github/workflows/build-android.yml'
+  workflow_dispatch:   # 允许手动触发
+
+jobs:
+  build:
+    name: Build Debug & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          # 缓存 Gradle 的下载和依赖，加速后续构建
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Ensure Gradle wrapper jar exists
+        working-directory: android
+        # 仓库未提交 gradle-wrapper.jar（二进制）；这里用 setup-gradle 安装的
+        # gradle 生成完整的 wrapper（含 jar），之后 ./gradlew 即可正常使用。
+        run: gradle wrapper --gradle-version 8.9 --distribution-type bin
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Build release APK (unsigned)
+        working-directory: android
+        # release 目前未签名；产物是 app-release-unsigned.apk，可直接安装测试
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DreamWord-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DreamWord-release-unsigned
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30

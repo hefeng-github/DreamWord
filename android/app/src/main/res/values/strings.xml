@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">DreamWord</string>
+    <string name="settings_title">设置</string>
+
+    <!-- 权限说明 -->
+    <string name="perm_camera_rationale">需要相机权限才能拍照识别单词</string>
+    <string name="perm_storage_rationale">需要存储权限才能保存已会词库与标注图</string>
+
+    <!-- 通用 -->
+    <string name="loading">加载中…</string>
+    <string name="ocr_not_ready">OCR 引擎未就绪，请确认模型已放置</string>
+    <string name="dict_not_ready">词典未就绪，请在设置中下载完整词典</string>
+</resources>

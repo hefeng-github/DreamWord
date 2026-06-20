@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>DreamWord</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="header">
+        <h1>DreamWord</h1>
+        <p class="subtitle" id="status-line">初始化中…</p>
+    </header>
+
+    <nav class="tabs">
+        <button class="tab-button active" data-tab="record" onclick="showTab('record')">📸 录词</button>
+        <button class="tab-button" data-tab="lookup" onclick="showTab('lookup')">🔍 查词</button>
+        <button class="tab-button" data-tab="words" onclick="showTab('words')">📚 词库</button>
+    </nav>
+
+    <main class="main-content">
+
+        <!-- ============ Tab 1: 录词 ============ -->
+        <section id="tab-record" class="tab-content active">
+
+            <!-- 拍照点词 -->
+            <div class="card">
+                <h2>📸 拍照点词</h2>
+                <p class="hint">拍试卷/书本，点击标记已会的单词</p>
+                <div class="camera-block">
+                    <button class="btn btn-primary btn-block" onclick="startCamera('tap')">📱 拍照</button>
+                    <div class="camera-container hidden" id="tap-camera-container">
+                        <video id="tap-video" autoplay playsinline></video>
+                        <div class="camera-controls">
+                            <button class="btn btn-success" onclick="capturePhoto('tap')">📸 拍照</button>
+                            <button class="btn btn-secondary" onclick="stopCamera('tap')">关闭</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="upload-block">
+                    <button class="btn btn-secondary btn-block" onclick="document.getElementById('tap-image').click()">📁 选择图片</button>
+                    <input type="file" id="tap-image" accept="image/*" hidden onchange="onImagePicked(this,'tap')">
+                </div>
+                <img id="tap-preview-img" class="preview-img hidden">
+                <button class="btn btn-primary btn-block" id="tap-ocr-btn" onclick="startOcrTap()">开始识别</button>
+
+                <!-- 识别结果画布：点击单词标记 -->
+                <div class="tap-workspace hidden" id="tap-workspace">
+                    <canvas id="tap-display-canvas"></canvas>
+                    <div class="tap-info">
+                        <span id="tap-marked-count">已标记 0 个</span>
+                        <button class="btn btn-success btn-small" onclick="submitTapWords()">提交到词库</button>
+                        <button class="btn btn-secondary btn-small" onclick="clearTapMarks()">清除标记</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 批量导入 -->
+            <div class="card collapsible">
+                <div class="collapsible-header" onclick="toggleCollapse(this)">
+                    <h2>📥 批量导入</h2><span class="arrow">▶</span>
+                </div>
+                <div class="collapsible-body hidden">
+                    <p class="hint">上传 JSON / JSON Lines 词库（兼容 kajweb/dict）</p>
+                    <button class="btn btn-secondary btn-block" onclick="document.getElementById('word-json-file').click()">选择词库文件</button>
+                    <input type="file" id="word-json-file" accept=".json,.jsonl" hidden onchange="onWordJsonPicked(this)">
+                    <div id="import-preview"></div>
+                    <button class="btn btn-success btn-block hidden" id="import-submit-btn" onclick="submitImport()">添加到词库</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ Tab 2: 查词 ============ -->
+        <section id="tab-lookup" class="tab-content hidden">
+
+            <!-- 手动查词 -->
+            <div class="card">
+                <h2>🔍 手动查词</h2>
+                <div class="search-row">
+                    <input type="text" id="preview-word-input" placeholder="输入单词，如 found"
+                           oninput="debounceLookup()">
+                </div>
+                <div class="word-preview">
+                    <div id="word-preview-loading" class="hidden"><div class="spinner"></div></div>
+                    <div id="word-preview-result" class="hidden">
+                        <div class="word-header">
+                            <h3 id="preview-word"></h3>
+                            <span class="phonetic" id="preview-phonetic"></span>
+                            <span class="pos-badge" id="preview-pos"></span>
+                        </div>
+                        <div id="preview-definitions-section">
+                            <h4>释义</h4>
+                            <ol id="preview-definitions"></ol>
+                        </div>
+                        <div id="preview-examples-section">
+                            <h4>例句</h4>
+                            <ul id="preview-examples"></ul>
+                        </div>
+                    </div>
+                    <div id="word-preview-no-result" class="hidden hint">未找到该词</div>
+                </div>
+            </div>
+
+            <!-- 拍照查词书写 -->
+            <div class="card">
+                <h2>📚 拍照查词</h2>
+                <p class="hint">拍试卷，自动找生词并标注释义</p>
+                <div class="camera-block">
+                    <button class="btn btn-primary btn-block" onclick="startCamera('lookup')">📱 拍照</button>
+                    <div class="camera-container hidden" id="lookup-camera-container">
+                        <video id="lookup-video" autoplay playsinline></video>
+                        <div class="camera-controls">
+                            <button class="btn btn-success" onclick="capturePhoto('lookup')">📸 拍照</button>
+                            <button class="btn btn-secondary" onclick="stopCamera('lookup')">关闭</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="upload-block">
+                    <button class="btn btn-secondary btn-block" onclick="document.getElementById('lookup-image').click()">📁 选择图片</button>
+                    <input type="file" id="lookup-image" accept="image/*" hidden onchange="onImagePicked(this,'lookup')">
+                </div>
+                <!-- 裁剪画布：拖动框选查词区域 -->
+                <div class="crop-workspace hidden" id="lookup-crop-workspace">
+                    <canvas id="lookup-crop-canvas"></canvas>
+                    <button class="btn btn-secondary btn-small" onclick="clearCropSelection()">清除选区</button>
+                </div>
+                <button class="btn btn-primary btn-block" id="lookup-go-btn" onclick="autoLookup()">开始查词</button>
+                <img id="lookup-annotated" class="preview-img hidden">
+            </div>
+        </section>
+
+        <!-- ============ Tab 3: 词库 ============ -->
+        <section id="tab-words" class="tab-content hidden">
+            <div class="card">
+                <h2>📚 已会词库</h2>
+                <div class="search-row">
+                    <input type="text" id="known-words-search" placeholder="搜索…" oninput="renderKnownWords()">
+                </div>
+                <div class="word-list" id="known-words-list"></div>
+                <p class="hint" id="known-words-count"></p>
+            </div>
+            <div class="card collapsible">
+                <div class="collapsible-header" onclick="toggleCollapse(this)">
+                    <h2>☁️ OneDrive 备份</h2><span class="arrow">▶</span>
+                </div>
+                <div class="collapsible-body hidden">
+                    <p class="hint">云端备份已会词库（需在设置中配置 Client ID）</p>
+                    <div class="btn-row">
+                        <button class="btn btn-primary btn-block" onclick="onedriveBackup()">备份到云端</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <div class="loading-overlay hidden" id="loading">
+        <div class="spinner"></div>
+    </div>
+    <div class="notification hidden" id="notification"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

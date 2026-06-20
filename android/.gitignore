@@ -1,0 +1,20 @@
+# Gradle / Android Studio 构建产物
+.gradle/
+build/
+.idea/
+local.properties
+*.iml
+.Detekt
+captures/
+.externalNativeBuild/
+.cxx/
+
+# OCR 模型文件较大，不放仓库（按 README 指引本地放置）
+# 只排除 det/rec/keys，保留 README.txt 作为占位说明
+app/src/main/assets/models/det.onnx
+app/src/main/assets/models/rec.onnx
+app/src/main/assets/models/keys.txt
+
+# 完整词典 441MB，不放仓库（按 README 指引运行时下载）
+app/src/main/assets/dict/word_details.db
+!app/src/main/assets/dict/word_details_mini.db

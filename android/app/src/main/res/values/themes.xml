@@ -1,0 +1,10 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- 基础主题：WebView 容器，沉浸式全屏 -->
+    <style name="Theme.DreamWord" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:statusBarColor" tools:targetApi="l">#3b82f6</item>
+        <item name="colorPrimary">#3b82f6</item>
+        <item name="colorPrimaryDark">#2563eb</item>
+        <item name="colorAccent">#10b981</item>
+    </style>
+</resources>
