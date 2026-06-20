@@ -145,9 +145,32 @@
                     <h2>☁️ OneDrive 备份</h2><span class="arrow">▶</span>
                 </div>
                 <div class="collapsible-body hidden">
-                    <p class="hint">云端备份已会词库（需在设置中配置 Client ID）</p>
-                    <div class="btn-row">
-                        <button class="btn btn-primary btn-block" onclick="onedriveBackup()">备份到云端</button>
+                    <p class="hint">云端备份已会词库。需先在右上角 ⚙️ 设置中填写 OneDrive Client ID。</p>
+
+                    <!-- 状态 -->
+                    <div id="onedrive-status" class="hint">检查授权状态中…</div>
+
+                    <!-- 授权区域 -->
+                    <div id="onedrive-auth-area">
+                        <button class="btn btn-primary btn-block" onclick="onedriveStartAuth()">开始授权</button>
+                        <div id="onedrive-auth-instructions" class="hidden">
+                            <div class="auth-box">
+                                <p>1. 打开网址：</p>
+                                <p class="mono" id="onedrive-verify-url"></p>
+                                <p>2. 输入代码：</p>
+                                <p class="code-badge" id="onedrive-user-code"></p>
+                                <p>3. 完成后此页面会自动检测…</p>
+                                <div class="spinner-wrap"><div class="spinner spinner-small"></div><span>等待授权…</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 已授权后的操作 -->
+                    <div id="onedrive-actions" class="hidden">
+                        <button class="btn btn-success btn-block" onclick="onedriveBackup()">⬆️ 备份到云端</button>
+                        <button class="btn btn-primary btn-block" onclick="onedriveListBackups()">📋 刷新备份列表</button>
+                        <div id="onedrive-backup-list"></div>
+                        <button class="btn btn-secondary btn-block" onclick="onedriveDisconnect()">断开连接</button>
                     </div>
                 </div>
             </div>

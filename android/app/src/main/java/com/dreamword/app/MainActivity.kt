@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.webkit.JsResult
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -100,7 +101,7 @@ class MainActivity : AppCompatActivity() {
             // 注入 NativeBridge：前端通过 window.NativeBridge.xxx() 调用
             addJavascriptInterface(bridge, "NativeBridge")
 
-            // 相机权限 + file input 回调
+            // 相机权限 + file input 回调 + JS 对话框
             webChromeClient = object : WebChromeClient() {
                 override fun onPermissionRequest(request: PermissionRequest) {
                     // 摄像头权限：检查并自动授予
@@ -117,6 +118,31 @@ class MainActivity : AppCompatActivity() {
                             if (hasCameraPermission()) request.grant(needed) else request.deny()
                         }, 800)
                     }
+                }
+
+                // WebView 默认不处理 confirm()；这里桥接到原生 AlertDialog，
+                // 否则前端 onedriveRestore 的确认框会直接返回 false 导致操作被取消
+                override fun onJsConfirm(
+                    view: WebView?, url: String?, message: String?, result: JsResult?
+                ): Boolean {
+                    androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                        .setMessage(message ?: "")
+                        .setPositiveButton("确定") { _, _ -> result?.confirm() }
+                        .setNegativeButton("取消") { _, _ -> result?.cancel() }
+                        .setOnCancelListener { result?.cancel() }
+                        .show()
+                    return true
+                }
+
+                override fun onJsAlert(
+                    view: WebView?, url: String?, message: String?, result: JsResult?
+                ): Boolean {
+                    androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                        .setMessage(message ?: "")
+                        .setPositiveButton("确定") { _, _ -> result?.confirm() }
+                        .setOnCancelListener { result?.cancel() }
+                        .show()
+                    return true
                 }
 
                 override fun onShowFileChooser(

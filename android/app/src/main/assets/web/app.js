@@ -477,10 +477,147 @@ async function removeKnown(word) {
     if (resp.success) loadKnownWords();
 }
 
-// ============ OneDrive 备份（占位）============
+// ============ OneDrive 备份/恢复 ============
+let onedrivePollTimer = null;
+let onedriveDeviceCode = null;
+
+// 进入词库 Tab / 展开时刷新授权状态
+async function onedriveCheckStatus() {
+    const statusEl = $('onedrive-status');
+    const authArea = $('onedrive-auth-area');
+    const actionsEl = $('onedrive-actions');
+    if (!statusEl) return;
+
+    try {
+        const resp = await callNative('onedrive', { action: 'status' });
+        if (!resp.success) {
+            // 多半是未配置 Client ID
+            statusEl.textContent = resp.error || '未配置 Client ID';
+            show(authArea); hide(actionsEl);
+            return;
+        }
+        const authorized = resp.data.authorized;
+        if (authorized) {
+            statusEl.textContent = '✓ 已连接 OneDrive';
+            hide(authArea); show(actionsEl);
+        } else {
+            statusEl.textContent = '未授权';
+            show(authArea); hide(actionsEl);
+        }
+    } catch (e) {
+        statusEl.textContent = '状态检查失败';
+    }
+}
+
+// 启动授权：拿设备码 → 显示引导 → 轮询
+async function onedriveStartAuth() {
+    const resp = await callNative('onedrive', { action: 'auth' });
+    if (!resp.success) return showNotification(resp.error || '获取设备码失败', 'error');
+
+    const data = resp.data;
+    onedriveDeviceCode = data.device_code;
+    $('onedrive-verify-url').textContent = data.verification_uri || data.verification_url || '';
+    $('onedrive-user-code').textContent = data.user_code || '';
+    show('onedrive-auth-instructions');
+    showNotification('请按提示在浏览器完成授权', 'info');
+
+    // 开始轮询（PC 版默认 interval 5 秒）
+    onedrivePoll(data.interval || 5, (data.expires_in || 900));
+}
+
+// 轮询 token：每 interval 秒调一次 poll，直到授权成功或超时
+function onedrivePoll(interval, expiresIn) {
+    clearTimeout(onedrivePollTimer);
+    const deadline = Date.now() + expiresIn * 1000;
+
+    const tick = async () => {
+        if (Date.now() > deadline) {
+            hide('onedrive-auth-instructions');
+            showNotification('授权超时，请重试', 'error');
+            return;
+        }
+        try {
+            // 轮询不走 callNative（避免每次闪 loading 蒙层）
+            const raw = await window.NativeBridge.onedrive(
+                JSON.stringify({ action: 'poll', device_code: onedriveDeviceCode })
+            );
+            const resp = JSON.parse(raw);
+            if (resp.success && resp.data && resp.data.authorized) {
+                hide('onedrive-auth-instructions');
+                showNotification('授权成功', 'success');
+                onedriveCheckStatus();
+                return;
+            }
+            // pending：继续等
+        } catch (e) {
+            // 单次失败不中断轮询
+        }
+        onedrivePollTimer = setTimeout(tick, (interval || 5) * 1000);
+    };
+    tick();
+}
+
+// 备份
 async function onedriveBackup() {
     const resp = await callNative('onedrive', { action: 'backup' });
-    showNotification(resp.success ? `备份成功：${resp.data.version}` : (resp.error || '备份未启用'), resp.success ? 'success' : 'error');
+    if (resp.success) {
+        showNotification(`备份成功！版本 v${resp.data.version}，共 ${resp.data.word_count} 个单词`, 'success');
+        onedriveListBackups();
+    } else {
+        showNotification(resp.error || '备份失败', 'error');
+    }
+}
+
+// 列出云端备份
+async function onedriveListBackups() {
+    const resp = await callNative('onedrive', { action: 'list' });
+    const el = $('onedrive-backup-list');
+    if (!resp.success) {
+        el.innerHTML = `<p class="hint">${resp.error || '读取失败'}</p>`;
+        return;
+    }
+    const backups = resp.data.backups || [];
+    if (backups.length === 0) {
+        el.innerHTML = '<p class="hint">云端暂无备份</p>';
+        return;
+    }
+    el.innerHTML = '<h4>云端备份</h4>' + backups.map(b => {
+        const name = b.name || '';
+        const size = b.size ? `(${(b.size / 1024).toFixed(1)} KB)` : '';
+        const time = b.last_modified ? new Date(b.last_modified).toLocaleString() : '';
+        return `<div class="word-list-item">
+            <div><div><b>${name}</b> ${size}</div><div class="hint">${time}</div></div>
+            <button class="btn btn-primary btn-small" onclick="onedriveRestore('${name}')">恢复</button>
+        </div>`;
+    }).join('');
+}
+
+// 恢复（默认合并模式）
+async function onedriveRestore(backupName) {
+    if (!confirm(`从 ${backupName} 恢复？将与本地词库合并（不删除现有词）。`)) return;
+    const resp = await callNative('onedrive', {
+        action: 'restore', backup_name: backupName, merge: true
+    });
+    if (resp.success) {
+        const d = resp.data;
+        const msg = d.action === 'merged'
+            ? `恢复成功：本地 ${d.local_count} + 云端 ${d.cloud_count} → 合并 ${d.merged_count}（新增 ${d.new_words}）`
+            : `恢复成功：替换为 ${d.word_count} 个词`;
+        showNotification(msg, 'success');
+        loadKnownWords();  // 刷新本地词库列表
+    } else {
+        showNotification(resp.error || '恢复失败', 'error');
+    }
+}
+
+// 断开连接
+async function onedriveDisconnect() {
+    if (!confirm('断开 OneDrive 连接？本地词库不受影响。')) return;
+    const resp = await callNative('onedrive', { action: 'disconnect' });
+    if (resp.success) {
+        showNotification('已断开连接', 'info');
+        onedriveCheckStatus();
+    }
 }
 
 // ============ 启动自检 ============
@@ -504,8 +641,11 @@ async function checkStatus() {
 document.addEventListener('DOMContentLoaded', () => {
     checkStatus();
     loadKnownWords();
-    // 切到词库 tab 时刷新
-    document.querySelector('.tab-button[data-tab="words"]')?.addEventListener('click', loadKnownWords);
+    // 切到词库 tab 时刷新本地词库 + OneDrive 状态
+    document.querySelector('.tab-button[data-tab="words"]')?.addEventListener('click', () => {
+        loadKnownWords();
+        onedriveCheckStatus();
+    });
 });
 
 // 页面卸载时关闭摄像头

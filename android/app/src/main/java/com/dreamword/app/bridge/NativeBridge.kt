@@ -10,6 +10,7 @@ import com.dreamword.app.dict.DictRepository
 import com.dreamword.app.dict.Disambiguator
 import com.dreamword.app.dict.WordLookup
 import com.dreamword.app.ocr.OcrEngine
+import com.dreamword.app.onedrive.OneDriveBackup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -178,12 +179,69 @@ class NativeBridge(
         .put("known_words_count", knownWords.count())
     )
 
-    // ---- 工具 ----
+    // ---- OneDrive 备份/恢复 ----
+    // 统一入口 onedrive(payload)，用 action 字段分发，对应 PC 版的多个 /api/onedrive/* 路由：
+    //   status    → 是否已授权
+    //   auth      → 获取设备码（getDeviceCode）
+    //   poll      → 轮询 token（pollToken）
+    //   backup    → 备份到云端
+    //   list      → 列出云端备份
+    //   restore   → 恢复（backup_name 可选，merge 可选）
+    //   disconnect → 断开连接
 
-    /** OneDrive 相关在阶段5实现，先返回未启用占位，避免前端调用崩溃 */
     @android.webkit.JavascriptInterface
-    fun onedrive(payload: String): String =
-        """{"success":false,"message":"OneDrive 备份尚未启用（阶段5实现）"}"""
+    fun onedrive(payload: String): String = runCatching {
+        val args = JSONObject(payload)
+        val action = args.optString("action")
+        when (action) {
+            "status" -> {
+                val od = buildOneDrive()
+                ok(JSONObject().put("authorized", od?.isAuthorized() ?: false))
+            }
+            "auth" -> {
+                val od = buildOneDrive() ?: return error("请先在设置中填写 OneDrive Client ID")
+                val code = runBlocking { withContext(Dispatchers.IO) { od.getDeviceCode() } }
+                ok(code)  // 含 user_code / device_code / verification_uri
+            }
+            "poll" -> {
+                val od = buildOneDrive() ?: return error("请先在设置中填写 OneDrive Client ID")
+                val deviceCode = args.optString("device_code")
+                val tokens = runBlocking { withContext(Dispatchers.IO) { od.pollToken(deviceCode) } }
+                if (tokens != null) ok(JSONObject().put("authorized", true))
+                else ok(JSONObject().put("authorized", false).put("pending", true))
+            }
+            "backup" -> {
+                val od = buildOneDrive() ?: return error("请先在设置中填写 OneDrive Client ID")
+                val result = runBlocking { withContext(Dispatchers.IO) { od.backup() } }
+                ok(result)
+            }
+            "list" -> {
+                val od = buildOneDrive() ?: return error("请先在设置中填写 OneDrive Client ID")
+                val list = runBlocking { withContext(Dispatchers.IO) { od.listBackups() } }
+                ok(JSONObject().put("backups", list))
+            }
+            "restore" -> {
+                val od = buildOneDrive() ?: return error("请先在设置中填写 OneDrive Client ID")
+                val name = args.optString("backup_name").takeIf { it.isNotBlank() }
+                val merge = args.optBoolean("merge", true)
+                val result = runBlocking { withContext(Dispatchers.IO) { od.restore(name, merge) } }
+                ok(result)
+            }
+            "disconnect" -> {
+                buildOneDrive()?.disconnect()
+                ok(JSONObject().put("disconnected", true))
+            }
+            else -> error("未知的 OneDrive 操作: $action")
+        }
+    }.getOrElse { error("OneDrive 操作失败：${it.message}") }
+
+    /** 构造 OneDriveBackup；Client ID 未配置时返回 null */
+    private fun buildOneDrive(): OneDriveBackup? {
+        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
+        val clientId = prefs.getString("onedrive_client_id", "")?.trim().orEmpty()
+        if (clientId.isEmpty()) return null
+        return OneDriveBackup(context, clientId, knownWords)
+    }
 
     private fun buildDisambiguator(): Disambiguator {
         val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)

@@ -245,3 +245,45 @@ ol li, ul li { margin: 4px 0; }
     from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
     to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* OneDrive 授权区域 */
+.auth-box {
+    background: #f9fafb;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    margin: 8px 0;
+}
+.auth-box p { margin: 6px 0; font-size: 14px; }
+.mono {
+    font-family: 'Courier New', monospace;
+    word-break: break-all;
+    color: var(--primary);
+    font-size: 13px;
+}
+.code-badge {
+    display: inline-block;
+    background: var(--primary);
+    color: white;
+    font-family: 'Courier New', monospace;
+    font-size: 22px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    margin: 4px 0;
+    user-select: all;
+}
+.spinner-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+.spinner-small {
+    width: 20px !important;
+    height: 20px !important;
+    border-width: 2px !important;
+}
