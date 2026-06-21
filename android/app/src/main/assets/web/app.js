@@ -620,7 +620,30 @@ async function onedriveDisconnect() {
     }
 }
 
-// ============ 词典导入 ============
+// ============ 词典导入（SAF 选文件，流式拷贝，不 OOM）===========
+
+// 触发系统文件选择器选 .db 文件
+async function pickDictFile() {
+    // 先注册回调（原生选完文件后异步调用）
+    window.__dictImportCallback = async (result) => {
+        if (result && result.success) {
+            const mb = (result.data.size / 1024 / 1024).toFixed(1);
+            showNotification(`词典导入成功（${mb}MB）！`, 'success');
+            // 触发原生 reloadDict 刷新 bridge 内部 dict 引用 + 更新状态
+            await callNative('reloadDict', {});
+            await loadDictInfo();
+        } else {
+            showNotification((result && result.error) || '导入失败', 'error');
+        }
+        window.__dictImportCallback = null;
+    };
+    // 触发原生 SAF 选择器
+    const resp = await callNative('pickAndImportDict', {});
+    if (!resp.success) {
+        showNotification(resp.error || '无法打开文件选择器', 'error');
+        window.__dictImportCallback = null;
+    }
+}
 
 // 查询词典状态 + 导入路径（不走 base64，避免大文件撑爆内存闪退）
 async function loadDictInfo() {

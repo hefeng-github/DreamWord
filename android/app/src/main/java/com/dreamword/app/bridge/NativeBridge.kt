@@ -46,6 +46,13 @@ class NativeBridge(
     @Volatile private var dict: DictRepository? = DictRepository.resolve(context)
     private val lookup: WordLookup? get() = dict?.let { WordLookup(it) }
 
+    /**
+     * 启动 SAF 文件选择器的回调（由 MainActivity 注入，因为 Launcher 必须在 Activity 上注册）。
+     * NativeBridge.pickAndImportDict 调用它触发选择器，结果异步通过 importDictByUri + JS 回调返回。
+     */
+    var launchDictPicker: (() -> Unit)? = null
+
+
     // ---- OCR ----
 
     /**
@@ -190,6 +197,23 @@ class NativeBridge(
      *
      * 返回 JSON: { dict_ready, import_path, hint }
      */
+    /**
+     * 触发系统文件选择器（SAF）让用户选 .db 词典文件。
+     * 选择结果异步通过 window.__dictImportCallback 回调返回前端。
+     * 全程流式拷贝（ContentResolver），441MB 也不会 OOM，且能访问任何位置（微信/文件管理器/U盘）。
+     *
+     * 前端用法：
+     *   window.__dictImportCallback = (result) => { ... };  // 先注册回调
+     *   window.NativeBridge.pickAndImportDict('{}');        // 再触发选择器
+     */
+    @android.webkit.JavascriptInterface
+    fun pickAndImportDict(payload: String): String = runCatching {
+        val launcher = launchDictPicker
+            ?: return error("文件选择器未初始化")
+        launcher.invoke()
+        ok(JSONObject().put("launched", true))  // 选择器已弹出，结果走异步回调
+    }.getOrElse { error("启动文件选择器失败：${it.message}") }
+
     @android.webkit.JavascriptInterface
     fun dictInfo(): String = runCatching {
         val hintPath = DictRepository.getImportHintPath(context)

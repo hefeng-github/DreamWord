@@ -135,12 +135,16 @@
             <div class="card">
                 <h2>📖 词典</h2>
                 <p class="hint" id="dict-status-line">检查词典状态中…</p>
-                <div class="dict-import-box">
-                    <p class="hint" style="margin:0 0 6px">把 PC 版的 <code>word_details.db</code> 放到手机以下路径：</p>
+                <button class="btn btn-primary btn-block" onclick="pickDictFile()">📥 选择词典文件导入</button>
+                <p class="hint" style="margin-top:8px;font-size:12px">
+                    点击按钮后从<strong>微信传输记录 / 文件管理器 / U 盘</strong>任意位置选
+                    <code>word_details.db</code>。流式导入，441MB 也不会卡。
+                </p>
+                <div class="dict-import-box hidden" id="dict-alt-path">
+                    <p class="hint" style="margin:0 0 6px">或手动放到以下路径后点重载：</p>
                     <p class="mono" id="dict-import-path" style="word-break:break-all;font-size:12px">（加载中…）</p>
-                    <p class="hint" style="margin:6px 0 0;font-size:12px">用数据线 adb 推送，或用文件管理器放入。放好后点下方按钮。</p>
+                    <button class="btn btn-secondary btn-block btn-small" onclick="reloadDict()">🔄 重新加载词典</button>
                 </div>
-                <button class="btn btn-primary btn-block" onclick="reloadDict()">🔄 重新加载词典</button>
             </div>
             <div class="card">
                 <h2>📚 已会词库</h2>

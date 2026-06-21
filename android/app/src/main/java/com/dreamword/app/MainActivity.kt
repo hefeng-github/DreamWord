@@ -33,6 +33,14 @@ class MainActivity : AppCompatActivity() {
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private lateinit var fileChooserLauncher: ActivityResultLauncher<Intent>
 
+    /**
+     * SAF 词典选择器（Storage Access Framework）。
+     * 用户从微信/文件管理器/U 盘任意位置选 .db 文件，返回 content:// Uri，
+     * 原生通过 ContentResolver 流式拷贝（不经 base64，441MB 也不会 OOM）。
+     * SAF 免任何运行时权限，且能访问 Android/data 之外的任何位置。
+     */
+    private lateinit var dictPickerLauncher: ActivityResultLauncher<Array<String>>
+
     private val cameraPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             // 由 WebView 的 onPermissionRequest 触发；这里仅记录，权限提示由系统展示
@@ -67,6 +75,26 @@ class MainActivity : AppCompatActivity() {
             filePathCallback = null
         }
 
+        // SAF 词典选择器：选完调 bridge.importDictByUri 流式拷贝，结果回传前端
+        dictPickerLauncher = registerForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri != null) {
+                // 流式拷贝（ContentResolver，不经 base64）
+                val result = bridge.importDictByUri(uri)
+                // 回传给前端：写入全局变量 + 触发回调
+                val js = "window.__dictImportResult = $result; " +
+                    "if (window.__dictImportCallback) { window.__dictImportCallback($result); }"
+                binding.webView.evaluateJavascript(js, null)
+            } else {
+                binding.webView.evaluateJavascript(
+                    "window.__dictImportResult = {success:false,error:'已取消'}; " +
+                    "if (window.__dictImportCallback) { window.__dictImportCallback(window.__dictImportResult); }",
+                    null
+                )
+            }
+        }
+
         setupWebView()
         ensureCameraPermission()
     }
@@ -81,6 +109,18 @@ class MainActivity : AppCompatActivity() {
             ocr = ocrEngine!!,
             coroutineScope = lifecycleScope  // 来自 androidx.lifecycle
         )
+        // 注入 SAF 词典选择器（选择器结果在 dictPickerLauncher 回调里处理）
+        bridge.launchDictPicker = {
+            try {
+                dictPickerLauncher.launch(arrayOf("application/octet-stream", "application/x-sqlite3", "*/*"))
+            } catch (e: Exception) {
+                binding.webView.evaluateJavascript(
+                    "window.__dictImportResult = {success:false,error:'无法打开文件选择器'}; " +
+                    "if (window.__dictImportCallback) { window.__dictImportCallback(window.__dictImportResult); }",
+                    null
+                )
+            }
+        }
 
         with(binding.webView) {
             // 关键设置
