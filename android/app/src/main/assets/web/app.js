@@ -622,49 +622,34 @@ async function onedriveDisconnect() {
 
 // ============ 词典导入 ============
 
-// 用户选择 .db 文件后读取为 base64，传给原生层写入 filesDir
-async function onDictFilePicked(input) {
-    const file = input.files[0];
-    if (!file) return;
-    // 大文件警告：base64 编码会膨胀 33%，441MB → ~590MB，可能超出 JSBridge 传参上限
-    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-    if (file.size > 200 * 1024 * 1024) {
-        if (!confirm(`文件较大（${sizeMB}MB），导入可能失败或耗时很久。建议用精简词典或通过 adb 推送。仍要尝试？`)) {
-            input.value = '';
-            return;
-        }
-    }
-    showNotification(`正在读取 ${sizeMB}MB 词典文件…`, 'info');
+// 查询词典状态 + 导入路径（不走 base64，避免大文件撑爆内存闪退）
+async function loadDictInfo() {
     try {
-        const b64 = await fileToBase64(file);
-        showNotification('正在导入，请勿关闭…', 'info');
-        const resp = await callNative('importDict', { data: b64 });
+        const resp = await callNative('dictInfo', {});
         if (resp.success) {
-            const mb = (resp.data.size / 1024 / 1024).toFixed(1);
-            showNotification(`词典导入成功（${mb}MB）`, 'success');
-            checkStatus();
-        } else {
-            showNotification(resp.error || '导入失败', 'error');
+            const d = resp.data;
+            $('dict-import-path').textContent = d.import_path || '';
+            updateDictStatus(d.dict_ready);
         }
     } catch (e) {
-        showNotification('读取文件失败：' + e.message, 'error');
+        // 忽略
     }
-    input.value = '';
 }
 
-// FileReader 读为 base64（去掉 data: 前缀）
-function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            const result = reader.result;
-            const b64 = typeof result === 'string' && result.includes(',')
-                ? result.split(',')[1] : result;
-            resolve(b64);
-        };
-        reader.onerror = () => reject(reader.error || new Error('读取失败'));
-        reader.readAsDataURL(file);
-    });
+// 用户把 .db 放到公共目录后，点击重新加载
+async function reloadDict() {
+    showNotification('正在重新加载词典…', 'info');
+    const resp = await callNative('reloadDict', {});
+    if (resp.success) {
+        if (resp.data.dict_ready) {
+            showNotification('词典加载成功，可以查词了！', 'success');
+        } else {
+            showNotification('未检测到词典文件，请确认 .db 已放到指定路径', 'error');
+        }
+        updateDictStatus(resp.data.dict_ready);
+    } else {
+        showNotification(resp.error || '加载失败', 'error');
+    }
 }
 
 // 更新词典状态卡片
@@ -673,7 +658,7 @@ function updateDictStatus(dictReady) {
     if (!el) return;
     el.textContent = dictReady
         ? '✓ 词典已就绪，可正常查词'
-        : '✗ 词典未导入。请点击下方按钮选择 PC 版的 word_details.db 文件导入。';
+        : '✗ 词典未就绪。请把 word_details.db 放到下方路径后点重新加载。';
 }
 
 // ============ 启动自检 ============
@@ -696,10 +681,12 @@ async function checkStatus() {
 // ============ 初始化 ============
 document.addEventListener('DOMContentLoaded', () => {
     checkStatus();
+    loadDictInfo();
     loadKnownWords();
-    // 切到词库 tab 时刷新本地词库 + OneDrive 状态
+    // 切到词库 tab 时刷新本地词库 + 词典信息 + OneDrive 状态
     document.querySelector('.tab-button[data-tab="words"]')?.addEventListener('click', () => {
         loadKnownWords();
+        loadDictInfo();
         onedriveCheckStatus();
     });
 });

@@ -107,45 +107,63 @@ class DictRepository private constructor(
         @Volatile private var instance: DictRepository? = null
 
         /**
-         * 解析词典位置：
-         *  1) 外部下载的完整词典（用户通过设置下载的 441MB）
-         *  2) 内置精简词表（assets 解包到 filesDir）
-         * 都没有则返回 null（前端会提示去下载）
+         * 解析词典位置（按优先级查找）：
+         *  1) 外部应用目录 Android/data/com.dreamword.app/files/dict/word_details.db
+         *     （adb 可访问，用户也可用文件管理器放入；推荐方式，无需 App 内传输）
+         *  2) 内部目录 filesDir/dict/word_details.db（旧版导入或 adb push 到此处）
+         *  3) 内置精简词表（assets 解包到 filesDir）
+         * 都没有则返回 null（前端会提示去导入）
          */
         fun resolve(context: Context): DictRepository? {
             instance?.let { return it }
 
-            // 外部完整词典：filesDir/dict/word_details.db
-            val external = File(context.filesDir, "dict/word_details.db")
-            val target = when {
-                external.exists() && external.canRead() -> external
-                else -> {
-                    // 内置精简词表：首次启动从 assets 拷贝到 filesDir
-                    val mini = File(context.filesDir, "dict/word_details_mini.db")
-                    if (!mini.exists()) {
-                        tryCopyAsset(context, "dict/word_details_mini.db", mini)
-                    }
-                    if (mini.exists() && mini.canRead()) mini else return null
-                }
+            // 候选路径列表，按优先级
+            val candidates = mutableListOf<File>()
+            // 1) 外部应用专属目录（Android/data/<pkg>/files/dict/）
+            //    context.getExternalFilesDir(null) 返回该路径，adb/文件管理器可直接访问
+            context.getExternalFilesDir(null)?.let { extBase ->
+                candidates.add(File(extBase, "dict/word_details.db"))
+                candidates.add(File(extBase, "dict/word_details_mini.db"))
             }
+            // 2) 内部目录 filesDir/dict/（旧版兼容）
+            candidates.add(File(context.filesDir, "dict/word_details.db"))
+            // 3) 内置精简词表（assets 解包）
+            val mini = File(context.filesDir, "dict/word_details_mini.db")
+            if (!mini.exists()) {
+                tryCopyAsset(context, "dict/word_details_mini.db", mini)
+            }
+            candidates.add(mini)
+
+            val target = candidates.firstOrNull { it.exists() && it.canRead() }
+                ?: return null
             return DictRepository(target).also { instance = it }
         }
 
         /** 当用户下载完完整词典后，重置单例使其重新解析 */
         fun reset() { instance = null }
 
+        /** 返回推荐的词典导入路径（给前端提示用户把 .db 放这里） */
+        fun getImportHintPath(context: Context): String {
+            val ext = context.getExternalFilesDir(null)
+            return if (ext != null) "${ext.absolutePath}/dict/word_details.db"
+            else "${context.filesDir.absolutePath}/dict/word_details.db"
+        }
+
         /**
          * 导入用户从本地选择的词典文件（.db）。
-         * 把 Uri 指向的 SQLite 拷贝到 filesDir/dict/word_details.db，
+         * 把 Uri 指向的 SQLite 拷贝到外部应用目录 dict/word_details.db，
          * 拷贝成功后 reset()，下次查询自动用新词典。
+         * 用流式拷贝（非 base64），避免大文件撑爆内存。
          *
          * @return 导入结果：成功返回文件大小，失败抛异常
          */
         fun importDictionary(context: Context, uri: android.net.Uri): Long {
-            val dest = File(context.filesDir, "dict/word_details.db")
+            val ext = context.getExternalFilesDir(null)
+                ?: throw Exception("无法访问外部存储目录")
+            val dest = File(ext, "dict/word_details.db")
             dest.parentFile?.mkdirs()
             // 先写临时文件，校验通过后替换，避免拷贝中途崩溃导致词典损坏
-            val tmp = File(context.filesDir, "dict/word_details.db.tmp")
+            val tmp = File(ext, "dict/word_details.db.tmp")
             try {
                 context.contentResolver.openInputStream(uri).use { input ->
                     if (input == null) throw Exception("无法读取所选文件")

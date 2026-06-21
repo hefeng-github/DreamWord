@@ -45,17 +45,27 @@ OCR 用 [RapidOcrAndroidOnnx](https://github.com/RapidAI/RapidOcrAndroidOnnx)（
 
 ### 步骤 2：词典（App 内手动导入）
 
-词典（441MB）不打包进 APK，**装好 App 后在应用内导入**：
+词典（441MB）不打包进 APK。把 PC 版的 `databases/word_details.db` 放到手机指定目录，App 自动检测加载：
 
-1. 把 PC 版的 `databases/word_details.db` 传到手机
-2. 打开 App → 切到「📚 词库」Tab → 顶部「📖 词典」卡片 → 点「📥 导入词典文件」
-3. 选择 `.db` 文件，等待导入完成
+**方式 A：adb 推送（推荐）**
 
-> 导入后文件存到 `filesDir/dict/word_details.db`，生效。也可用 adb 推送：
-> ```
-> adb push databases/word_details.db /data/data/com.dreamword.app/files/dict/word_details.db
-> ```
-> 未导入词典时 App 仍可启动，只是查词提示"词典未就绪"，其他功能（OCR 点词标记、词库管理）不受影响。
+把 .db 推到应用专属外部存储目录（adb 可直接访问，无需 root）：
+```
+adb push databases/word_details.db /sdcard/Android/data/com.dreamword.app/files/dict/word_details.db
+```
+> 若目录不存在，先建：`adb shell mkdir -p /sdcard/Android/data/com.dreamword.app/files/dict`
+
+**方式 B：文件管理器**
+
+用手机文件管理器，把 `word_details.db` 放到：
+```
+内部存储/Android/data/com.dreamword.app/files/dict/
+```
+> 精确路径以 App 内「📚 词库」Tab →「📖 词典」卡片显示的「导入路径」为准（不同机型外部存储根路径可能不同）。
+
+**放好后**：打开 App → 词库 Tab → 词典卡片 → 点「🔄 重新加载词典」，提示"词典加载成功"即可查词。
+
+> 未导入词典时 App 仍可启动，查词提示"词典未就绪"，其他功能（OCR 点词标记、词库管理、OneDrive 备份）不受影响。
 
 ### 步骤 3：运行
 

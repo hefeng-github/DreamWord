@@ -73,13 +73,11 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
-        // 初始化原生能力（懒加载）
-        val dict = DictRepository.resolve(this)
+        // 初始化原生能力（OCR；词典在 NativeBridge 内部按需解析并可 reload）
         ocrEngine = OcrEngine.create(this)
 
         bridge = NativeBridge(
             context = this,
-            dict = dict,
             ocr = ocrEngine!!,
             coroutineScope = lifecycleScope  // 来自 androidx.lifecycle
         )

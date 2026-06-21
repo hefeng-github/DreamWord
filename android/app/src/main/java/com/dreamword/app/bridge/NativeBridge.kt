@@ -38,12 +38,13 @@ import org.json.JSONObject
  */
 class NativeBridge(
     private val context: Context,
-    private val dict: DictRepository?,
     private val ocr: OcrEngine,
     private val coroutineScope: CoroutineScope
 ) {
     private val knownWords: KnownWordsDao = KnownWordsDao(context)
-    private val lookup: WordLookup? = dict?.let { WordLookup(it) }
+    // dict 可被 reloadDict() 刷新：初始从外部存储/内部目录解析，用户放入 .db 后重载生效
+    @Volatile private var dict: DictRepository? = DictRepository.resolve(context)
+    private val lookup: WordLookup? get() = dict?.let { WordLookup(it) }
 
     // ---- OCR ----
 
@@ -180,37 +181,49 @@ class NativeBridge(
     )
 
     /**
-     * 导入词典：前端把用户选择的 .db 文件以 base64 传入，原生解码后写入
-     * filesDir/dict/word_details.db，并重置词典单例。
-     * 入参 JSON: { "data": "<base64 sqlite>" }
-     * 返回 JSON: { success, size }
+     * 词典状态 + 导入路径查询。
+     * 不再用 base64 传输（441MB 会撑爆内存导致闪退）。
+     * 改为：前端调用此方法，拿到推荐导入路径，提示用户把 .db 文件
+     * 用文件管理器 / adb 放到该路径，然后调用 reloadDict() 重新加载。
      *
-     * 注意：441MB 词典 base64 后约 590MB，超过 JSBridge 单次传参上限。
-     * 所以实际使用时，前端会把大文件分块传入（见 importDictChunk）。
-     * 小词典（< 50MB）可一次性传入。
+     * 返回 JSON: { dict_ready, import_path, hint }
      */
     @android.webkit.JavascriptInterface
-    fun importDict(payload: String): String = runCatching {
-        val args = JSONObject(payload)
-        val b64 = args.optString("data")
-        if (b64.isBlank()) return error("缺少词典数据")
-        val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
-        writeDictBytes(bytes)
-    }.getOrElse { error("词典导入失败：${it.message}") }
+    fun dictInfo(): String = runCatching {
+        val hintPath = DictRepository.getImportHintPath(context)
+        ok(JSONObject()
+            .put("dict_ready", dict?.isOpenable() ?: false)
+            .put("import_path", hintPath)
+            .put("hint", "把 word_details.db 放到上述路径，然后点「重新加载」")
+        )
+    }.getOrElse { error("查询词典状态失败：${it.message}") }
 
-    private fun writeDictBytes(bytes: ByteArray): String {
-        val tmp = java.io.File(context.filesDir, "dict/word_details.db.tmp")
-        tmp.parentFile?.mkdirs()
-        // 校验 SQLite 文件头
-        if (bytes.size < 16 || !String(bytes, 0, 15).startsWith("SQLite format 3")) {
-            return error("所选文件不是有效的 SQLite 词典")
-        }
-        tmp.writeBytes(bytes)
-        val dest = java.io.File(context.filesDir, "dict/word_details.db")
-        if (dest.exists()) dest.delete()
-        if (!tmp.renameTo(dest)) return error("写入词典失败")
+    /**
+     * 重新检测词典文件并加载。用户把 .db 放到公共目录后调用。
+     * 返回 JSON: { dict_ready, import_path }
+     */
+    @android.webkit.JavascriptInterface
+    fun reloadDict(): String = runCatching {
         DictRepository.reset()
-        return ok(JSONObject().put("size", dest.length()))
+        // 重新 resolve（触发从外部存储目录查找）并刷新 bridge 持有的引用
+        dict = DictRepository.resolve(context)
+        ok(JSONObject()
+            .put("dict_ready", dict?.isOpenable() ?: false)
+            .put("import_path", DictRepository.getImportHintPath(context))
+        )
+    }.getOrElse { error("重新加载词典失败：${it.message}") }
+
+    /**
+     * 通过文件 Uri 导入词典（供 MainActivity 的 file chooser 回调调用，不走 base64）。
+     * 用 ContentResolver 流式拷贝，不会撑爆内存。
+     */
+    fun importDictByUri(uri: android.net.Uri): String = try {
+        val size = DictRepository.importDictionary(context, uri)
+        DictRepository.reset()
+        DictRepository.resolve(context)
+        ok(JSONObject().put("size", size))
+    } catch (e: Exception) {
+        error("词典导入失败：${e.message}")
     }
 
     // ---- OneDrive 备份/恢复 ----
