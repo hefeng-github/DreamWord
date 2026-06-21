@@ -620,6 +620,62 @@ async function onedriveDisconnect() {
     }
 }
 
+// ============ 词典导入 ============
+
+// 用户选择 .db 文件后读取为 base64，传给原生层写入 filesDir
+async function onDictFilePicked(input) {
+    const file = input.files[0];
+    if (!file) return;
+    // 大文件警告：base64 编码会膨胀 33%，441MB → ~590MB，可能超出 JSBridge 传参上限
+    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+    if (file.size > 200 * 1024 * 1024) {
+        if (!confirm(`文件较大（${sizeMB}MB），导入可能失败或耗时很久。建议用精简词典或通过 adb 推送。仍要尝试？`)) {
+            input.value = '';
+            return;
+        }
+    }
+    showNotification(`正在读取 ${sizeMB}MB 词典文件…`, 'info');
+    try {
+        const b64 = await fileToBase64(file);
+        showNotification('正在导入，请勿关闭…', 'info');
+        const resp = await callNative('importDict', { data: b64 });
+        if (resp.success) {
+            const mb = (resp.data.size / 1024 / 1024).toFixed(1);
+            showNotification(`词典导入成功（${mb}MB）`, 'success');
+            checkStatus();
+        } else {
+            showNotification(resp.error || '导入失败', 'error');
+        }
+    } catch (e) {
+        showNotification('读取文件失败：' + e.message, 'error');
+    }
+    input.value = '';
+}
+
+// FileReader 读为 base64（去掉 data: 前缀）
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result;
+            const b64 = typeof result === 'string' && result.includes(',')
+                ? result.split(',')[1] : result;
+            resolve(b64);
+        };
+        reader.onerror = () => reject(reader.error || new Error('读取失败'));
+        reader.readAsDataURL(file);
+    });
+}
+
+// 更新词典状态卡片
+function updateDictStatus(dictReady) {
+    const el = $('dict-status-line');
+    if (!el) return;
+    el.textContent = dictReady
+        ? '✓ 词典已就绪，可正常查词'
+        : '✗ 词典未导入。请点击下方按钮选择 PC 版的 word_details.db 文件导入。';
+}
+
 // ============ 启动自检 ============
 async function checkStatus() {
     try {
@@ -630,8 +686,8 @@ async function checkStatus() {
         parts.push(data.dict_ready ? '✓ 词典' : '✗ 词典');
         parts.push(`词库 ${data.known_words_count || 0}`);
         $('status-line').textContent = parts.join(' · ');
-        if (!data.ocr_ready) $('status-line').textContent += '（OCR 模型待放置，见 README）';
-        if (!data.dict_ready) $('status-line').textContent += '（完整词典待下载）';
+        if (!data.dict_ready) $('status-line').textContent += '（请到词库页导入）';
+        updateDictStatus(data.dict_ready);
     } catch (e) {
         $('status-line').textContent = '状态检查失败';
     }

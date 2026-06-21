@@ -34,70 +34,42 @@ WebView 层（assets/web 里的 index.html + app.js + style.css）
 - JDK 17（Android Studio 自带）
 - Android SDK Platform 34 + Build-Tools 34.x
 
-### 步骤 1：放置 OCR 模型（★ 关键 ★）
+### 步骤 1：OCR（全自动，无需手动操作）
 
-OCR 引擎需要 PaddleOCR PP-OCRv6 的 onnx 模型。**这是项目能否跑起来的前提**。
+OCR 用 [RapidOcrAndroidOnnx](https://github.com/RapidAI/RapidOcrAndroidOnnx)（PP-OCRv3，离线）。
 
-**模型来源**：[MaaCommonAssets/OCR/ppocr_v6/small](https://github.com/MaaXYZ/MaaCommonAssets/tree/main/OCR/ppocr_v6/small)
+- **CI 编译时**：GitHub Actions 会自动从 RapidOcrAndroidOnnx release 下载预编译 aar（自带模型 + native so）到 `app/libs/`，APK 自带 OCR，**开箱即用**。
+- **本地编译时**：手动从 [Releases](https://github.com/RapidAI/RapidOcrAndroidOnnx/releases) 下载 `OcrLibrary-x.x.x-release.aar`（约 37MB）放到 `android/app/libs/OcrLibrary.aar`。
 
-从该目录下载 **3 个文件**（用 `small` 档，总 30MB，适合安卓；`medium` 档 138MB 太重）：
+无需单独放置模型文件——aar 内部已打包 det/cls/rec 模型 + 字符表。
 
-| 文件 | 大小 | 说明 |
-|---|---|---|
-| `det.onnx` | 9.4 MB | 文字检测（PP-OCRv6_small_det） |
-| `rec.onnx` | 20.1 MB | 文字识别（PP-OCRv6_small_rec，支持简繁中文/英文/日文） |
-| `keys.txt` | 73 KB | 识别字符表（注意文件名就是 `keys.txt`） |
+### 步骤 2：词典（App 内手动导入）
 
-放到：
-```
-android/app/src/main/assets/models/
-├── det.onnx
-├── rec.onnx
-└── keys.txt
-```
+词典（441MB）不打包进 APK，**装好 App 后在应用内导入**：
 
-> 这套是 v6（最新），与 PC 版主项目用的 PP-OCRv6 同源，效果一致。无 cls（方向分类），纯 det+rec 两段式。
-> 该目录已被 `.gitignore` 排除（模型文件不入仓库）。
+1. 把 PC 版的 `databases/word_details.db` 传到手机
+2. 打开 App → 切到「📚 词库」Tab → 顶部「📖 词典」卡片 → 点「📥 导入词典文件」
+3. 选择 `.db` 文件，等待导入完成
 
-### 步骤 2：接入 RapidOCR 库
+> 导入后文件存到 `filesDir/dict/word_details.db`，生效。也可用 adb 推送：
+> ```
+> adb push databases/word_details.db /data/data/com.dreamword.app/files/dict/word_details.db
+> ```
+> 未导入词典时 App 仍可启动，只是查词提示"词典未就绪"，其他功能（OCR 点词标记、词库管理）不受影响。
 
-在 `android/app/build.gradle.kts` 里二选一：
+### 步骤 3：运行
 
-**方式 A（推荐，体积可控）：源码模块**
-```kotlin
-// 1. 下载 https://github.com/RapidAI/RapidOcrAndroidOnnx 源码
-//    放到 android/RapidOcrAndroidOnnx/
-// 2. settings.gradle.kts 加：
-include(":RapidOcrAndroidOnnx")
-// 3. app/build.gradle.kts dependencies 加：
-implementation(project(":RapidOcrAndroidOnnx"))
-```
+**用 GitHub Actions（推荐，无需本地环境）**
 
-**方式 B：Maven 依赖（开箱即用）**
-```kotlin
-// 取消 app/build.gradle.kts 里的注释：
-implementation("io.github.mymonstercat:rapidocr-onnx-platform:0.0.7")
-// 然后把 RapidOcrEngineImpl.kt 的实现切换为 Maven 版（按库的 API 调用）
-```
+push 到 `main` 分支即自动编译，或到 Actions 页面手动触发。编译成功后下载 `DreamWord-debug` artifact，解压得到 APK，传手机安装。详见下方「用 GitHub Actions 在线编译」。
 
-接入后，编辑 `RapidOcrEngineImpl.kt`，把 `recognize()` 里的 TODO 替换为实际调用（文件内有详细注释）。
+**用 Android Studio 本地编译**
 
-### 步骤 3：词典 + 运行
-
-**词典（首次可不放，app 仍能启动，只是查词功能提示"词典未就绪"）**
-
-- **精简版（推荐起步）**：准备一个小型 SQLite（表 `mdx(entry, paraphrase)`），放到 `android/app/src/main/assets/dict/word_details_mini.db`。可从 PC 版的 `databases/word_details.db` 中筛取高考/CET 词表生成。
-- **完整版（441MB）**：不要打进 APK。运行后在 设置 → 下载完整词典，下载到 `filesDir/dict/word_details.db`。或手动把 PC 版的 `databases/word_details.db` 用 adb push 到：
-  ```
-  /data/data/com.dreamword.app/files/dict/word_details.db
-  ```
-
-**打开运行**
 ```
 用 Android Studio 打开 android/ 目录，等 Gradle 同步完成，点 Run。
 ```
 
-> 本机无 Android Studio 环境时，可用命令行（需装好 SDK）：
+> 命令行编译（需装好 SDK）：
 > ```
 > cd android
 > ./gradlew assembleRelease

@@ -179,6 +179,40 @@ class NativeBridge(
         .put("known_words_count", knownWords.count())
     )
 
+    /**
+     * 导入词典：前端把用户选择的 .db 文件以 base64 传入，原生解码后写入
+     * filesDir/dict/word_details.db，并重置词典单例。
+     * 入参 JSON: { "data": "<base64 sqlite>" }
+     * 返回 JSON: { success, size }
+     *
+     * 注意：441MB 词典 base64 后约 590MB，超过 JSBridge 单次传参上限。
+     * 所以实际使用时，前端会把大文件分块传入（见 importDictChunk）。
+     * 小词典（< 50MB）可一次性传入。
+     */
+    @android.webkit.JavascriptInterface
+    fun importDict(payload: String): String = runCatching {
+        val args = JSONObject(payload)
+        val b64 = args.optString("data")
+        if (b64.isBlank()) return error("缺少词典数据")
+        val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+        writeDictBytes(bytes)
+    }.getOrElse { error("词典导入失败：${it.message}") }
+
+    private fun writeDictBytes(bytes: ByteArray): String {
+        val tmp = java.io.File(context.filesDir, "dict/word_details.db.tmp")
+        tmp.parentFile?.mkdirs()
+        // 校验 SQLite 文件头
+        if (bytes.size < 16 || !String(bytes, 0, 15).startsWith("SQLite format 3")) {
+            return error("所选文件不是有效的 SQLite 词典")
+        }
+        tmp.writeBytes(bytes)
+        val dest = java.io.File(context.filesDir, "dict/word_details.db")
+        if (dest.exists()) dest.delete()
+        if (!tmp.renameTo(dest)) return error("写入词典失败")
+        DictRepository.reset()
+        return ok(JSONObject().put("size", dest.length()))
+    }
+
     // ---- OneDrive 备份/恢复 ----
     // 统一入口 onedrive(payload)，用 action 字段分发，对应 PC 版的多个 /api/onedrive/* 路由：
     //   status    → 是否已授权

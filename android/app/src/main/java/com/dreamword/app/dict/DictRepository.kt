@@ -134,6 +134,42 @@ class DictRepository private constructor(
         /** 当用户下载完完整词典后，重置单例使其重新解析 */
         fun reset() { instance = null }
 
+        /**
+         * 导入用户从本地选择的词典文件（.db）。
+         * 把 Uri 指向的 SQLite 拷贝到 filesDir/dict/word_details.db，
+         * 拷贝成功后 reset()，下次查询自动用新词典。
+         *
+         * @return 导入结果：成功返回文件大小，失败抛异常
+         */
+        fun importDictionary(context: Context, uri: android.net.Uri): Long {
+            val dest = File(context.filesDir, "dict/word_details.db")
+            dest.parentFile?.mkdirs()
+            // 先写临时文件，校验通过后替换，避免拷贝中途崩溃导致词典损坏
+            val tmp = File(context.filesDir, "dict/word_details.db.tmp")
+            try {
+                context.contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) throw Exception("无法读取所选文件")
+                    tmp.outputStream().use { output -> input.copyTo(output) }
+                }
+                // 基本校验：SQLite 文件头应为 "SQLite format 3\000"
+                tmp.inputStream().use { ins ->
+                    val header = ByteArray(16)
+                    val n = ins.read(header)
+                    if (n < 16 || !String(header, 0, 15).startsWith("SQLite format 3")) {
+                        throw Exception("所选文件不是有效的 SQLite 词典（缺少 SQLite 文件头）")
+                    }
+                }
+                // 替换正式文件
+                if (dest.exists()) dest.delete()
+                if (!tmp.renameTo(dest)) throw Exception("写入词典失败")
+                reset()
+                return dest.length()
+            } catch (e: Exception) {
+                tmp.delete()
+                throw e
+            }
+        }
+
         private fun tryCopyAsset(context: Context, assetPath: String, dest: File) {
             try {
                 dest.parentFile?.mkdirs()

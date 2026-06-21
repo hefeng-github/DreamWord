@@ -82,13 +82,9 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // ---- OCR：RapidOcrAndroidOnnx（PaddleOCR PP-OCRv4 onnx，离线）----
-    // 官方推荐通过源码集成；Maven 中央仓也发布了 io.github.mymonstercat 系列。
-    // 两种方式任选其一：
-    //   方式 A（推荐，体积更小、可控）：从 https://github.com/RapidAI/RapidOcrAndroidOnnx
-    //         下载源码作为 module 引入；模型放到本模块 assets/models/（见 README）。
-    //   方式 B（Maven 一行依赖，开箱即用）：
-    //         implementation("io.github.mymonstercat:rapidocr-onnx-platform:0.0.7")
-    // 这里默认走方式 A 的接口约定，OcrEngine 持有 RapidOCR 实例；
-    // 若用方式 B，把对应类换成 RapidOCR 即可（API 几乎一致）。
+    // ---- OCR：RapidOcrAndroidOnnx（PP-OCRv4，离线，APK 自带模型）----
+    // aar 由 GitHub Actions 编译前从 RapidOcrAndroidOnnx release 自动下载到 app/libs/。
+    // 库主页：https://github.com/RapidAI/RapidOcrAndroidOnnx
+    // 本地开发时，手动从该 release 下载 OcrLibrary-x.x.x-release.aar 放到 app/libs/。
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
 }

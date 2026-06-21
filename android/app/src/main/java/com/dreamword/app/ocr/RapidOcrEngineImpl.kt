@@ -5,71 +5,93 @@ import android.graphics.Bitmap
 import com.dreamword.app.data.OcrWord
 
 /**
- * 基于 RapidOcrAndroidOnnx 的 OCR 实现（PP-OCRv6 small 模型）
+ * 基于 RapidOcrAndroidOnnx 的 OCR 实现（PP-OCRv3，离线，APK 自带模型）
  *
- * ★ 模型来源 ★：https://github.com/MaaXYZ/MaaCommonAssets/tree/main/OCR/ppocr_v6/small
- *   把这 3 个文件放到 app/src/main/assets/models/ 下：
- *     - det.onnx   (9.4MB，文字检测，PP-OCRv6_small_det)
- *     - rec.onnx   (20MB，文字识别，PP-OCRv6_small_rec)
- *     - keys.txt   (73KB，识别字符表 —— 注意文件名就是 keys.txt，非 ppocr_keys_v1.txt)
- *   该套模型无 cls（方向分类），纯 det+rec 两段式；支持简繁中文/英文/日文。
+ * 库的 aar 由 GitHub Actions 编译前从 RapidOcrAndroidOnnx release 自动下载到
+ * app/libs/（见 .github/workflows/build-android.yml）。aar 内部打包了模型文件
+ * （ch_PP-OCRv3_det/cls/rec + ppocr_keys_v1.txt），OcrEngine 构造时自动从 assets 加载。
  *
- * ★ 依赖接入 ★（二选一，详见 app/build.gradle.kts 注释）：
- *   方式 A（推荐）：RapidOcrAndroidOnnx 源码模块
- *   方式 B：io.github.mymonstercat:rapidocr-onnx-platform Maven 依赖
+ * API（来自 com.benjaminwan.ocrlibrary）：
+ *   val engine = OcrEngine(context)          // 自动加载模型
+ *   val result = engine.detect(input, output, maxSideLen)
+ *   result.textBlocks: List<TextBlock>
+ *     - textBlock.boxPoint: List<Point{x,y}>  (4 个角点)
+ *     - textBlock.text: String
+ *     - textBlock.boxScore: Float
  *
- * ★ 版本注意 ★：RapidOCR 3.x 支持 PP-OCRv6；若用旧版默认带 v4 模型，
- *   替换成 v6 时需确认 RapidOCR 版本支持 v6 的预处理参数（DB 后处理 / CTC 解码）。
- *
- * RapidOCR 的 Java API 通常长这样：
- *   RapidOCR ocr = new RapidOCR(context);          // 自动从 assets/models 加载
- *   OcrResult result = ocr.detect(bitmap);          // 同步识别
- *   for (OcrResult.ResultItem item : result.items) {
- *       item.text;        // 文字
- *       item.box;         // 4 点坐标 [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
- *       item.score;       // 置信度
- *   }
- *
- * 接入后把下方 TODO 处替换为实际调用。
+ * 注意：com.benjaminwan.ocrlibrary.OcrEngine 在 init 块里 System.loadLibrary
+ * 并加载 assets 模型，若 aar 未放置会抛 UnsatisfiedLinkError，故延迟到首次
+ * recognize 时初始化并兜底。
  */
 class RapidOcrEngineImpl(
-    private val context: Context
+    context: Context
 ) : OcrEngine {
 
-    // TODO: 接入 RapidOCR 后，把下行改为实际引用
-    // private val rapid: Any? = null  // RapidOCR 实例
-    private var released = false
+    private val appContext = context.applicationContext
+    private var engine: com.benjaminwan.ocrlibrary.OcrEngine? = null
+    @Volatile private var triedInit = false
 
-    override fun isReady(): Boolean = false // TODO: rapid != null && !released
+    private fun ensureEngine(): com.benjaminwan.ocrlibrary.OcrEngine? {
+        if (triedInit) return engine
+        synchronized(this) {
+            if (triedInit) return engine
+            triedInit = true
+            try {
+                engine = com.benjaminwan.ocrlibrary.OcrEngine(appContext)
+            } catch (e: Throwable) {
+                // aar 未就绪 / 模型缺失 / native 库加载失败 → engine 保持 null
+            }
+            return engine
+        }
+    }
+
+    override fun isReady(): Boolean = ensureEngine() != null
 
     override fun recognize(bitmap: Bitmap): List<OcrWord> {
-        // TODO: 接入 RapidOCR 后实现：
-        // val result = rapid.detect(bitmap)
-        // return result.items.map { item ->
-        //     OcrWord(
-        //         text = item.text.trim(),
-        //         bbox = item.box.map { p -> listOf(p.x.toInt(), p.y.toInt()) },
-        //         confidence = item.score,
-        //         center = centerOf(item.box)
-        //     )
-        // }.filter { isEnglishWord(it.text) }
-        return emptyList()
+        val eng = ensureEngine() ?: return emptyList()
+        return try {
+            // detect 需要一个可变的 output bitmap（库会在上面画检测框）
+            val output = Bitmap.createBitmap(
+                bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888
+            )
+            // maxSideLen：长边缩放到此值（加速），0 表示不缩放。
+            // 试卷图通常较大，限制到 1024 平衡速度与精度。
+            val maxSideLen = if (maxOf(bitmap.width, bitmap.height) > 1024) 1024 else 0
+            val result = eng.detect(bitmap, output, maxSideLen)
+
+            result.textBlocks.mapNotNull { block ->
+                val text = block.text.trim()
+                if (!isEnglishWord(text)) return@mapNotNull null
+                val box = block.boxPoint
+                if (box.size < 4) return@mapNotNull null
+                // 4 个角点 → [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]，与 PC 版 bbox 格式一致
+                val bbox = box.take(4).map { listOf(it.x, it.y) }
+                OcrWord(
+                    text = text,
+                    bbox = bbox,
+                    confidence = block.boxScore,
+                    center = centerOf(box)
+                )
+            }
+        } catch (e: Throwable) {
+            emptyList()
+        }
     }
 
     override fun release() {
-        released = true
-        // TODO: rapid.release()
+        engine = null
+        triedInit = false
     }
 
-    /** 取 bbox 的中心点 */
-    private fun centerOf(box: List<List<Int>>): Pair<Float, Float> {
-        if (box.size < 4) return 0f to 0f
-        val xs = box.map { it[0] }
-        val ys = box.map { it[1] }
+    /** 取角点的中心点 */
+    private fun centerOf(box: List<com.benjaminwan.ocrlibrary.Point>): Pair<Float, Float> {
+        if (box.isEmpty()) return 0f to 0f
+        val xs = box.map { it.x.toFloat() }
+        val ys = box.map { it.y.toFloat() }
         return ((xs.min() + xs.max()) / 2f) to ((ys.min() + ys.max()) / 2f)
     }
 
-    /** 与 PC 版 filter_english_words 一致：只保留英文单词 */
+    /** 与 PC 版 filter_english_words 一致：只保留英文单词（长度 >= 2） */
     private fun isEnglishWord(text: String): Boolean {
         val t = text.trim()
         if (t.length < 2) return false

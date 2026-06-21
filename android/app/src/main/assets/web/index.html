@@ -133,6 +133,13 @@
         <!-- ============ Tab 3: 词库 ============ -->
         <section id="tab-words" class="tab-content hidden">
             <div class="card">
+                <h2>📖 词典</h2>
+                <p class="hint" id="dict-status-line">检查词典状态中…</p>
+                <button class="btn btn-primary btn-block" onclick="document.getElementById('dict-file-input').click()">📥 导入词典文件 (.db)</button>
+                <input type="file" id="dict-file-input" accept=".db,application/octet-stream" hidden onchange="onDictFilePicked(this)">
+                <p class="hint" style="margin-top:8px;font-size:12px">导入 PC 版 databases/word_details.db（441MB）。大文件导入耗时较长，请耐心等待。</p>
+            </div>
+            <div class="card">
                 <h2>📚 已会词库</h2>
                 <div class="search-row">
                     <input type="text" id="known-words-search" placeholder="搜索…" oninput="renderKnownWords()">
