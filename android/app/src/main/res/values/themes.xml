@@ -1,10 +1,18 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- 基础主题：WebView 容器，沉浸式全屏 -->
-    <style name="Theme.DreamWord" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+
+    <!-- 应用基础主题。
+         用 AppCompat 而非 MaterialComponents 作 parent：
+         - SettingsActivity 用了 androidx.appcompat 的 AlertDialog，要求 AppCompat 主题
+         - 约束更少，避免 MaterialComponents 主题要求一大堆 materialAlertDialog 属性 -->
+    <style name="Theme.DreamWord" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">@android:color/white</item>
-        <item name="android:statusBarColor" tools:targetApi="l">#3b82f6</item>
+        <item name="android:statusBarColor" tools:targetApi="lollipop">#3b82f6</item>
         <item name="colorPrimary">#3b82f6</item>
         <item name="colorPrimaryDark">#2563eb</item>
         <item name="colorAccent">#10b981</item>
     </style>
+
+    <!-- SettingsActivity 用到 Toolbar 时可继承主主题；
+         当前 SettingsActivity 直接用 android.R.id.content，无需单独主题，
+         沿用 Theme.DreamWord 即可（Manifest 已配 android:theme）。 -->
 </resources>

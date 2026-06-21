@@ -5,7 +5,7 @@ name: Build Android APK
 #   - 在 Actions 页面手动点 "Run workflow"
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'feat/**' ]
     paths:
       - 'android/**'
       - '.github/workflows/build-android.yml'
@@ -29,7 +29,6 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          # 缓存 Gradle 的下载和依赖，加速后续构建
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Ensure Gradle wrapper jar exists
@@ -38,27 +37,43 @@ jobs:
         # gradle 生成完整的 wrapper（含 jar），之后 ./gradlew 即可正常使用。
         run: gradle wrapper --gradle-version 8.9 --distribution-type bin
 
+      # 用 tee 把完整输出存到文件，便于失败时上传分析
       - name: Build debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build-debug.log
 
       - name: Build release APK (unsigned)
         working-directory: android
         # release 目前未签名；产物是 app-release-unsigned.apk，可直接安装测试
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee build-release.log
 
+      # 无论上面成功失败，都尝试上传产物（方便调试时直接拿 APK）
       - name: Upload debug APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: DreamWord-debug
           path: android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Upload release APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: DreamWord-release-unsigned
           path: android/app/build/outputs/apk/release/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
+
+      # ★ 关键：失败时上传完整构建日志，便于定位编译错误
+      - name: Upload build logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            android/build-debug.log
+            android/build-release.log
+          if-no-files-found: warn
+          retention-days: 7

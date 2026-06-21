@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用图标 fallback（全 API 通用）。
+  mipmap-anydpi-v26/ic_launcher.xml 是 adaptive-icon（仅 API 26+ 生效）；
+  本文件为 API 24-25 提供同名资源，避免 aapt2 报 "resource mipmap/ic_launcher not found"。
+  内容复用 ic_launcher_foreground 的矢量图（蓝底白 D）。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/ic_launcher_background" />
+    <item android:drawable="@drawable/ic_launcher_foreground" />
+</layer-list>
