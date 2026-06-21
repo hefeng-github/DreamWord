@@ -72,13 +72,14 @@ class NativeBridge(
      */
     @android.webkit.JavascriptInterface
     fun wordPreview(payload: String): String = runCatching {
-        if (lookup == null) return error("词典未就绪，请在设置中下载完整词典")
+        // lookup 是带 custom getter 的属性，无法 smart cast，先取局部变量
+        val lookupInstance = lookup ?: return error("词典未就绪，请在设置中下载完整词典")
         val args = JSONObject(payload)
         val word = args.optString("word").trim()
         val contextStr = args.optString("context", "").trim()
         if (word.isEmpty()) return error("请输入要查询的单词")
 
-        var result = lookup.lookup(word, contextStr)
+        var result = lookupInstance.lookup(word, contextStr)
 
         // 在线语境消歧（增强，失败则沿用离线结果）
         val disamb = buildDisambiguator()
@@ -96,7 +97,8 @@ class NativeBridge(
      */
     @android.webkit.JavascriptInterface
     fun autoLookup(payload: String): String = runCatching {
-        if (lookup == null) return error("词典未就绪")
+        // lookup 是带 custom getter 的属性，无法 smart cast，先取局部变量
+        val lookupInstance = lookup ?: return error("词典未就绪")
         if (!ocr.isReady()) return error("OCR 引擎未就绪")
         val args = JSONObject(payload)
         var bitmap = decodeBase64Bitmap(args.optString("image"))
@@ -126,7 +128,7 @@ class NativeBridge(
         // 查释义
         val annotations = JSONArray()
         for (w in newWords) {
-            val r = lookup.lookup(w.text, "")
+            val r = lookupInstance.lookup(w.text, "")
             if (r.success) {
                 annotations.put(JSONObject()
                     .put("word", r.word)
