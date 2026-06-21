@@ -11,8 +11,8 @@ data class WordEntry(
     val definitions: MutableList<String> = mutableListOf(),
     val chineseDefinitions: MutableList<String> = mutableListOf(),
     val examples: MutableList<String> = mutableListOf(),
-    val baseForm: String? = null,
-    val pos: String? = null
+    var baseForm: String? = null,
+    var pos: String? = null
 )
 
 /** OCR 识别出的单个词——对应 Python OCRResult */

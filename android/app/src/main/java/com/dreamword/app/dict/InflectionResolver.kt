@@ -46,7 +46,7 @@ object InflectionResolver {
      */
     fun getWordBaseFormSimple(word: String, checker: ExistenceChecker): String? {
         val wordExists = checker.exists(word)
-        val wordLower = word.lower()
+        val wordLower = word.lowercase()
 
         // 1. 特殊不规则
         SPECIAL_CASES[wordLower]?.let { base ->
@@ -90,7 +90,7 @@ object InflectionResolver {
      * 用于"原词本身合法但在语境中其实是变形"。返回第一个词典中存在的候选。
      */
     fun inferInflectionBase(word: String, checker: ExistenceChecker): String? {
-        val wordLower = word.lower()
+        val wordLower = word.lowercase()
         val candidates = mutableListOf<String>()
 
         SPECIAL_CASES[wordLower]?.let { candidates.add(it) }
@@ -118,7 +118,7 @@ object InflectionResolver {
 
         // 只保留词典中存在、且与原词不同的
         for (cand in candidates) {
-            if (cand.isNotBlank() && cand.lower() != wordLower && checker.exists(cand)) {
+            if (cand.isNotBlank() && cand.lowercase() != wordLower && checker.exists(cand)) {
                 return cand
             }
         }

@@ -31,7 +31,7 @@ object SimilarityScorer {
     private val WORD_RE = Regex("""\b\w+\b""")
 
     fun tokenize(text: String): List<String> =
-        WORD_RE.findAll(text.lower()).map { it.value }.toList()
+        WORD_RE.findAll(text.lowercase()).map { it.value }.toList()
 
     private fun jaccard(a: Set<String>, b: Set<String>): Float {
         if (a.isEmpty() || b.isEmpty()) return 0f

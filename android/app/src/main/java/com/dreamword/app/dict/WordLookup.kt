@@ -69,7 +69,8 @@ class WordLookup(private val repo: DictRepository) {
         val phonetics = getPhonetics(bestEntry, baseEntry)
 
         // 6. 释义：优先中文，没有则英文；空则回退 baseEntry
-        var allDefinitions = if (bestEntry.chineseDefinitions.isNotEmpty())
+        // 显式声明为 List<String>：后续 rankDefinitionsByContext 返回不可变 List
+        var allDefinitions: List<String> = if (bestEntry.chineseDefinitions.isNotEmpty())
             bestEntry.chineseDefinitions else bestEntry.definitions
         if (allDefinitions.isEmpty() && baseEntry != null) {
             allDefinitions = if (baseEntry.chineseDefinitions.isNotEmpty())
