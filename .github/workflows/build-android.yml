@@ -9,7 +9,7 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/build-android.yml'
-  workflow_dispatch:   # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -33,15 +33,29 @@ jobs:
 
       - name: Ensure Gradle wrapper jar exists
         working-directory: android
-        # 仓库未提交 gradle-wrapper.jar（二进制）；这里用 setup-gradle 安装的
-        # gradle 生成完整的 wrapper（含 jar），之后 ./gradlew 即可正常使用。
         run: gradle wrapper --gradle-version 8.9 --distribution-type bin
 
+      - name: Restore signing keystore
+        # 若配置了 GitHub Secret SIGNING_KEYSTORE_BASE64，则从 Secret 还原 keystore 并设置
+        # 签名环境变量；否则跳过（build.gradle 会自动 fallback 到 debug 签名，
+        # release APK 仍可安装，但每次 CI 构建签名可能不同）。
+        # ★ 配置正式签名的步骤见 android/README.md「签名配置」 ★
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        working-directory: android/app
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
+            echo "Restoring keystore from secret..."
+            echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > release.keystore
+            ls -lh release.keystore
+          else
+            echo "No signing secret found. Release APK will use debug signing."
+          fi
+
       - name: Download RapidOCR Android library (aar) into app/libs
-        # 从 RapidOcrAndroidOnnx release 下载预编译 aar（自带 PP-OCRv4 模型 +
-        # onnxruntime native so）。放 app/libs/ 后 build.gradle 引用即可，
-        # 实现 OCR 开箱即用，APK 自带模型，用户无需二次下载。
-        # 库主页：https://github.com/RapidAI/RapidOcrAndroidOnnx
         run: |
           set -e
           mkdir -p android/app/libs
@@ -54,12 +68,15 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build-debug.log
 
-      - name: Build release APK (unsigned)
+      - name: Build release APK (signed)
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         working-directory: android
-        # release 目前未签名；产物是 app-release-unsigned.apk，可直接安装测试
         run: ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee build-release.log
 
-      # 无论上面成功失败，都尝试上传产物（方便调试时直接拿 APK）
       - name: Upload debug APK
         if: always()
         uses: actions/upload-artifact@v4
@@ -73,12 +90,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: DreamWord-release-unsigned
+          name: DreamWord-release
           path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: warn
           retention-days: 30
 
-      # ★ 关键：失败时上传完整构建日志，便于定位编译错误
+      # 失败时上传完整构建日志，便于定位编译错误
       - name: Upload build logs (on failure)
         if: failure()
         uses: actions/upload-artifact@v4

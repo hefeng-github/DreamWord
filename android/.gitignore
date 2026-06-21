@@ -18,3 +18,8 @@ app/src/main/assets/models/keys.txt
 # 完整词典 441MB，不放仓库（按 README 指引运行时下载）
 app/src/main/assets/dict/word_details.db
 !app/src/main/assets/dict/word_details_mini.db
+
+# 签名文件（含私钥，绝不入仓库）
+app/release.keystore
+keystore.properties
+

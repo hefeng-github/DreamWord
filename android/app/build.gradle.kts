@@ -3,6 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// ---- 签名配置 ----
+// 三种来源，按优先级读取：
+//   1) GitHub Actions Secrets（CI 用）：SIGNING_KEYSTORE_BASE64 / SIGNING_KEY_ALIAS /
+//      SIGNING_KEY_PASSWORD / SIGNING_STORE_PASSWORD（环境变量）
+//   2) 本地 keystore.properties（本地开发用，已 gitignore）：
+//      storeFile / storePassword / keyAlias / keyPassword
+//   3) 都没有时使用 debug 签名（release APK 仍能安装，但每次构建签名可能变化）
+val keystorePropsFile = rootProject.file("keystore.properties")
+val hasEnvSigning = System.getenv("SIGNING_KEYSTORE_BASE64") != null
+val hasPropsSigning = keystorePropsFile.exists()
+
 android {
     namespace = "com.dreamword.app"
     compileSdk = 34
@@ -15,6 +26,28 @@ android {
         versionName = "1.0.0"
     }
 
+    // 签名配置：优先环境变量（CI），其次本地 keystore.properties
+    signingConfigs {
+        create("release") {
+            if (hasEnvSigning) {
+                // CI 场景：keystore 由 workflow 从 Secret 还原到 app/release.keystore
+                storeFile = file("release.keystore")
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            } else if (hasPropsSigning) {
+                // 本地场景：读 keystore.properties
+                val props = java.util.Properties()
+                keystorePropsFile.inputStream().use { props.load(it) }
+                storeFile = file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+            // 都没有时：不配置，release 用默认 debug 签名（能安装，适合测试）
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -22,6 +55,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 有正式签名配置则用，否则用 debug 签名（保证 release APK 也能安装）
+            if (hasEnvSigning || hasPropsSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
 

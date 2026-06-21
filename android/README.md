@@ -97,13 +97,49 @@ push 到 `main` 分支即自动编译，或到 Actions 页面手动触发。编�
 编译成功后：
 1. 进入对应的 workflow run 页面
 2. 拉到底部 **Artifacts** 区
-3. 下载 `DreamWord-debug`（调试版，带日志）或 `DreamWord-release-unsigned`（发布版，未签名）
+3. 下载 `DreamWord-debug`（调试版）或 `DreamWord-release`（发布版，已签名）
 
 下载下来是 zip，解压得到 `.apk`，传到手机安装即可。
 
 > **关于 wrapper jar**：仓库只提交了 `gradlew`、`gradlew.bat` 和 `gradle-wrapper.properties`，没有提交二进制的 `gradle-wrapper.jar`。workflow 会在编译前用 `gradle wrapper` 命令自动补全它，本地用 Android Studio 打开时也会自动处理。如果你本地要直接跑 `./gradlew`，可执行一次 `gradle wrapper`（需本机装 gradle）生成 jar。
 
-> **关于签名**：release APK 是未签名的（`app-release-unsigned.apk`），安装时安卓会提示"未知来源"。如需正式签名，在 `app/build.gradle.kts` 的 `signingConfigs` 配置 keystore，并把密码存为 GitHub Secrets。
+## 签名配置
+
+**默认行为**：CI 编译出的 release APK 自动用 **debug 签名**（能直接安装，但每次构建签名可能变化，覆盖安装时安卓会提示"签名不一致需先卸载"）。
+
+**正式签名（推荐，让每次 CI 出的 APK 签名固定）**：在 GitHub 仓库 Settings → Secrets and variables → Actions 添加 4 个 Secret：
+
+| Secret 名 | 值 |
+|---|---|
+| `SIGNING_KEYSTORE_BASE64` | keystore 文件的 base64（见下方生成方法） |
+| `SIGNING_STORE_PASSWORD` | keystore 密码 |
+| `SIGNING_KEY_ALIAS` | key 别名 |
+| `SIGNING_KEY_PASSWORD` | key 密码 |
+
+生成 base64（在项目根目录执行，用本地已生成的 `android/app/release.keystore`）：
+```bash
+# Linux/Mac/Git Bash
+base64 -w 0 android/app/release.keystore
+# Windows PowerShell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("android\app\release.keystore"))
+```
+把输出的整串 base64 填入 `SIGNING_KEYSTORE_BASE64` Secret。
+
+> 生成自己的 keystore（有效 10000 天）：
+> ```
+> keytool -genkeypair -v -keystore release.keystore -alias dreamword \
+>   -keyalg RSA -keysize 2048 -validity 10000
+> ```
+> keystore 文件和密码不要提交到仓库（`.gitignore` 已排除 `app/release.keystore` 和 `keystore.properties`）。
+
+**本地编译签名**：把 keystore 放到 `android/app/release.keystore`，在 `android/keystore.properties` 填写：
+```properties
+storeFile=app/release.keystore
+storePassword=<你的密码>
+keyAlias=<你的别名>
+keyPassword=<你的密码>
+```
+`build.gradle.kts` 会自动读取。
 
 ---
 
