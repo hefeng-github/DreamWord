@@ -1,0 +1,5 @@
+<resources>
+    <!-- 默认值常量（供 Kotlin 引用，避免分散硬编码） -->
+    <string name="default_llm_base_url">https://open.bigmodel.cn/api/paas/v4/</string>
+    <string name="default_llm_model">glm-4-flash</string>
+</resources>

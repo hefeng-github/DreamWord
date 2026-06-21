@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory app:title="语境消歧（在线，可关闭）">
+        <SwitchPreferenceCompat
+            app:key="disambig_enable"
+            app:title="启用在线语境消歧"
+            app:summary="关闭后仅使用离线统计消歧（断网可用，准确率略低）"
+            app:defaultValue="true" />
+
+        <EditTextPreference
+            app:key="llm_base_url"
+            app:title="API Base URL"
+            app:defaultValue="https://open.bigmodel.cn/api/paas/v4/"
+            app:summary="OpenAI 兼容格式。默认智谱 GLM" />
+
+        <EditTextPreference
+            app:key="llm_api_key"
+            app:title="API Key"
+            app:summary="点击设置" />
+
+        <EditTextPreference
+            app:key="llm_model"
+            app:title="模型名"
+            app:defaultValue="glm-4-flash"
+            app:summary="默认 glm-4-flash（智谱免费档）" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="词典">
+        <Preference
+            app:key="dict_download"
+            app:title="下载完整词典"
+            app:summary="441MB，下载到外部存储以支持全词查询" />
+        <Preference
+            app:key="dict_status"
+            app:title="词典状态"
+            app:selectable="false"
+            app:summary="检查中…" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="OneDrive 备份">
+        <EditTextPreference
+            app:key="onedrive_client_id"
+            app:title="OneDrive Client ID"
+            app:summary="Azure 应用注册获得的 Client ID（可选）" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="关于">
+        <Preference
+            app:key="about_version"
+            app:title="版本"
+            app:summary="1.0.0" />
+    </PreferenceCategory>
+
+</PreferenceScreen>
