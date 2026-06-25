@@ -112,7 +112,8 @@ class MainActivity : AppCompatActivity() {
         // 注入 SAF 词典选择器（选择器结果在 dictPickerLauncher 回调里处理）
         bridge.launchDictPicker = {
             try {
-                dictPickerLauncher.launch(arrayOf("application/octet-stream", "application/x-sqlite3", "*/*"))
+                // 只传 */*：避免部分文件管理器按第一个 MIME（octet-stream/sqlite3）过滤反而隐藏 .db
+                dictPickerLauncher.launch(arrayOf("*/*"))
             } catch (e: Exception) {
                 binding.webView.evaluateJavascript(
                     "window.__dictImportResult = {success:false,error:'无法打开文件选择器'}; " +

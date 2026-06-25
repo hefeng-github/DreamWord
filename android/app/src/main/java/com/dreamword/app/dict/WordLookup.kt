@@ -12,11 +12,27 @@ import com.dreamword.app.data.WordEntry
  * 在这里被完整保留——这是该模块的核心价值。
  *
  * 在线 LLM 消歧不在本类，由 Disambiguator 在 Bridge 层对结果做后处理增强。
+ *
+ * 查询后端抽象为 DictBackend（CachedDict 长连接 / DictRepository 每次开关），
+ * 默认用 CachedDict，避免对 441MB 词典反复 open/close（见 DictRepository.openCached）。
+ * 所有查询走大小写兜底（getEntryHtmlCaseInsensitive / wordExistsCaseInsensitive），
+ * 修正 OCR 混合大小写命中失败的问题。
  */
-class WordLookup(private val repo: DictRepository) {
+class WordLookup(private val backend: DictBackend) {
+
+    /** 词典查询后端：CachedDict（长连接，推荐）或 DictRepository（每次开关） */
+    interface DictBackend {
+        fun wordExists(word: String): Boolean
+        fun wordExistsCaseInsensitive(word: String): Boolean
+        fun getEntryHtml(word: String): String?
+        fun getEntryHtmlCaseInsensitive(word: String): String?
+        fun getWordEntries(word: String): List<WordEntry>
+        /** 返回真正命中的词典 key，未命中 null（用于结果回填正确大小写） */
+        fun resolveEntryKey(word: String): String?
+    }
 
     private val checker = object : InflectionResolver.ExistenceChecker {
-        override fun exists(word: String) = repo.wordExists(word)
+        override fun exists(word: String) = backend.wordExistsCaseInsensitive(word)
     }
 
     /** 对应 Python WordLookup.lookup */
@@ -28,13 +44,13 @@ class WordLookup(private val repo: DictRepository) {
         }
 
         // 1. 解析词形（有 context 时额外推断变形基本形式）
-        val (lookupWord, baseForm) = resolveWordForm(w, ctx)
+        val (lookupWordRaw, baseForm) = resolveWordForm(w, ctx)
 
-        if (!repo.wordExists(lookupWord)) {
-            return LookupResult(false, w, message = "数据库中未找到单词 \"$w\"")
-        }
+        // 大小写兜底：解析出真正命中的词典 key
+        val lookupKey = backend.resolveEntryKey(lookupWordRaw)
+            ?: return LookupResult(false, w, message = "数据库中未找到单词 \"$w\"")
 
-        var entries = repo.getWordEntries(lookupWord)
+        var entries = backend.getWordEntries(lookupKey)
         if (entries.isEmpty()) {
             return LookupResult(false, w, message = "未找到单词 \"$w\" 的释义")
         }
@@ -44,17 +60,20 @@ class WordLookup(private val repo: DictRepository) {
 
         // 3. 获取基本形式条目（用于音标/释义复用 + 变形词合并择优）
         var baseEntry: WordEntry? = null
-        if (baseForm != null && baseForm != lookupWord) {
-            val baseEntries = repo.getWordEntries(baseForm)
-            if (baseEntries.isNotEmpty()) {
-                // 关键修复（word_lookup.py:1038-1045）：当 baseForm 是规则推断出的
-                // （即原词本身也合法，如 found），把原词和基本形式条目合并后按语境择优
-                if (ctx.isNotEmpty() && repo.wordExists(lookupWord)) {
-                    val merged = ArrayList(entries).apply { addAll(baseEntries) }
-                    bestEntry = SimilarityScorer.findBestMatch(merged, ctx)!!
-                    if (bestEntry in baseEntries) baseEntry = bestEntry
-                } else {
-                    baseEntry = SimilarityScorer.findBestMatch(baseEntries, "")!!
+        if (baseForm != null && baseForm != lookupKey) {
+            val baseKey = backend.resolveEntryKey(baseForm)
+            if (baseKey != null) {
+                val baseEntries = backend.getWordEntries(baseKey)
+                if (baseEntries.isNotEmpty()) {
+                    // 关键修复（word_lookup.py:1038-1045）：当 baseForm 是规则推断出的
+                    // （即原词本身也合法，如 found），把原词和基本形式条目合并后按语境择优
+                    if (ctx.isNotEmpty() && backend.wordExistsCaseInsensitive(lookupKey)) {
+                        val merged = ArrayList(entries).apply { addAll(baseEntries) }
+                        bestEntry = SimilarityScorer.findBestMatch(merged, ctx)!!
+                        if (bestEntry in baseEntries) baseEntry = bestEntry
+                    } else {
+                        baseEntry = SimilarityScorer.findBestMatch(baseEntries, "")!!
+                    }
                 }
             }
         }
@@ -94,10 +113,10 @@ class WordLookup(private val repo: DictRepository) {
 
         return LookupResult(
             success = true,
-            word = lookupWord,
+            word = lookupKey,
             phonetic = formatPhonetic(phonetics),
             definitions = allDefinitions,
-            baseForm = baseForm ?: lookupWord,
+            baseForm = baseForm ?: lookupKey,
             pos = bestEntry.pos,
             examples = examples
         )
@@ -105,7 +124,7 @@ class WordLookup(private val repo: DictRepository) {
 
     /** 对应 Python _resolve_word_form —— 返回 (查找词, 基本形式) */
     private fun resolveWordForm(word: String, context: String): Pair<String, String?> {
-        if (repo.wordExists(word)) {
+        if (backend.wordExistsCaseInsensitive(word)) {
             var baseForm = getBaseFormFromDb(word)
             // 有 context 时，即使原词存在也推断变形（found→find 等）
             if (context.isNotEmpty() && baseForm == null) {
@@ -120,7 +139,7 @@ class WordLookup(private val repo: DictRepository) {
 
     /** 对应 Python get_base_form_from_db —— 从词典 HTML 的 xref 提取 */
     private fun getBaseFormFromDb(word: String): String? {
-        val html = repo.getEntryHtml(word) ?: return null
+        val html = backend.getEntryHtmlCaseInsensitive(word) ?: return null
         val entries = MdxParser.parse(html)
         return entries.firstOrNull()?.baseForm
     }
@@ -135,4 +154,24 @@ class WordLookup(private val repo: DictRepository) {
 
     private fun formatPhonetic(phonetics: List<String>, maxCount: Int = 2): String =
         if (phonetics.isEmpty()) "N/A" else phonetics.take(maxCount).joinToString(", ")
+
+    /** 释放底层 CachedDict 连接（dict reload/import 前调用） */
+    fun close() {
+        (backend as? RepoBackend)?.cached?.close()
+    }
+
+    companion object {
+        /** 从 DictRepository 构造（用 CachedDict 长连接，推荐） */
+        fun fromRepo(repo: DictRepository): WordLookup = WordLookup(RepoBackend(repo.openCached()))
+
+        /** CachedDict 适配器 */
+        private class RepoBackend(val cached: DictRepository.CachedDict) : DictBackend {
+            override fun wordExists(word: String) = cached.wordExists(word)
+            override fun wordExistsCaseInsensitive(word: String) = cached.wordExistsCaseInsensitive(word)
+            override fun getEntryHtml(word: String) = cached.getEntryHtml(word)
+            override fun getEntryHtmlCaseInsensitive(word: String) = cached.getEntryHtmlCaseInsensitive(word)
+            override fun getWordEntries(word: String) = cached.getWordEntries(word)
+            override fun resolveEntryKey(word: String) = cached.resolveEntryKey(word)
+        }
+    }
 }

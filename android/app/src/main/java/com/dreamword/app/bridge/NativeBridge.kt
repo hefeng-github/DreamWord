@@ -44,7 +44,35 @@ class NativeBridge(
     private val knownWords: KnownWordsDao = KnownWordsDao(context)
     // dict 可被 reloadDict() 刷新：初始从外部存储/内部目录解析，用户放入 .db 后重载生效
     @Volatile private var dict: DictRepository? = DictRepository.resolve(context)
-    private val lookup: WordLookup? get() = dict?.let { WordLookup(it) }
+    /**
+     * WordLookup 持有一个 CachedDict 长连接（避免对 441MB 词典反复 open/close）。
+     * 在 dict 重新解析（reload/import）后由 invalidateLookup() 关闭旧连接、置空，
+     * 下次访问时惰性重建。
+     */
+    @Volatile private var lookupHolder: WordLookup? = null
+
+    /** 取当前 WordLookup（dict 就绪时惰性构建），未就绪返回 null */
+    private fun acquireLookup(): WordLookup? {
+        val d = dict ?: return null
+        if (!d.isOpenable()) return null
+        lookupHolder?.let { return it }
+        synchronized(this) {
+            lookupHolder?.let { return it }
+            return try {
+                val wl = WordLookup.fromRepo(d)
+                lookupHolder = wl
+                wl
+            } catch (e: Throwable) { null }
+        }
+    }
+
+    /** dict 重新解析后调用：关闭旧连接，清空 lookupHolder */
+    private fun invalidateLookup() {
+        synchronized(this) {
+            try { lookupHolder?.close() } catch (_: Throwable) {}
+            lookupHolder = null
+        }
+    }
 
     /**
      * 启动 SAF 文件选择器的回调（由 MainActivity 注入，因为 Launcher 必须在 Activity 上注册）。
@@ -79,8 +107,8 @@ class NativeBridge(
      */
     @android.webkit.JavascriptInterface
     fun wordPreview(payload: String): String = runCatching {
-        // lookup 是带 custom getter 的属性，无法 smart cast，先取局部变量
-        val lookupInstance = lookup ?: return error("词典未就绪，请在设置中下载完整词典")
+        // 惰性获取 WordLookup（持 CachedDict 长连接）；未就绪返回错误
+        val lookupInstance = acquireLookup() ?: return error("词典未就绪，请在设置中下载完整词典")
         val args = JSONObject(payload)
         val word = args.optString("word").trim()
         val contextStr = args.optString("context", "").trim()
@@ -104,53 +132,45 @@ class NativeBridge(
      */
     @android.webkit.JavascriptInterface
     fun autoLookup(payload: String): String = runCatching {
-        // lookup 是带 custom getter 的属性，无法 smart cast，先取局部变量
-        val lookupInstance = lookup ?: return error("词典未就绪")
+        // 惰性获取 WordLookup（持 CachedDict 长连接）
+        val lookupInstance = acquireLookup() ?: return error("词典未就绪")
         if (!ocr.isReady()) return error("OCR 引擎未就绪")
         val args = JSONObject(payload)
-        var bitmap = decodeBase64Bitmap(args.optString("image"))
+        val bitmap = decodeBase64Bitmap(args.optString("image"))
             ?: return error("无效的图片数据")
 
-        // 裁剪
-        val crop = args.optJSONObject("crop")
-        if (crop != null) {
-            val x = crop.optInt("x"); val y = crop.optInt("y")
-            val w = crop.optInt("w"); val h = crop.optInt("h")
-            if (w > 0 && h > 0 && x + w <= bitmap.width && y + h <= bitmap.height) {
-                bitmap = Bitmap.createBitmap(bitmap, x, y, w, h)
-            }
+        // 裁剪框
+        val crop = args.optJSONObject("crop")?.let { c ->
+            OcrLookupPipeline.Crop(c.optInt("x"), c.optInt("y"), c.optInt("w"), c.optInt("h"))
         }
 
-        val allWords = runBlocking { withContext(Dispatchers.Default) { ocr.recognize(bitmap) } }
-        // 已会词集合（入参传入 + 本地库）
-        val knownSet = HashSet<String>()
+        // 已会词（入参传入）
+        val knownFromCaller = ArrayList<String>()
         args.optJSONArray("known_words")?.let { arr ->
-            for (i in 0 until arr.length()) knownSet.add(arr.getString(i).lowercase())
+            for (i in 0 until arr.length()) knownFromCaller.add(arr.getString(i))
         }
-        knownWords.getAllWords().forEach { knownSet.add(it.lowercase()) }
 
-        // 找生词（过滤已会）
-        val newWords = allWords.filter { it.text.lowercase() !in knownSet }
-
-        // 查释义
-        val annotations = JSONArray()
-        for (w in newWords) {
-            val r = lookupInstance.lookup(w.text, "")
-            if (r.success) {
-                annotations.put(JSONObject()
-                    .put("word", r.word)
-                    .put("phonetic", r.phonetic)
-                    .put("definition", r.definitions.firstOrNull() ?: "")
-                    .put("bbox", JSONArray(w.bbox.map { JSONArray(it) }))
-                )
+        // 跑管线（OCR + 查词 + 标注），在后台线程
+        val result = runBlocking {
+            withContext(Dispatchers.Default) {
+                OcrLookupPipeline(ocr, lookupInstance) { knownWords.getAllWords() }
+                    .run(bitmap, crop, knownFromCaller)
             }
         }
 
-        // 画标注图
-        val annotated = AnnotationRenderer.render(bitmap, newWords, annotations)
+        // 回传标注图（base64） + 标注列表
+        val wordsJson = JSONArray()
+        for (a in result.annotations) {
+            wordsJson.put(JSONObject()
+                .put("word", a.word)
+                .put("phonetic", a.phonetic)
+                .put("definition", a.definition)
+                .put("bbox", JSONArray(a.bbox.map { JSONArray(it) }))
+            )
+        }
         ok(JSONObject()
-            .put("annotated_image", bitmapToBase64(annotated))
-            .put("words", annotations)
+            .put("annotated_image", bitmapToBase64(result.annotatedBitmap))
+            .put("words", wordsJson)
         )
     }.getOrElse { error("查词书写失败：${it.message}") }
 
@@ -230,6 +250,7 @@ class NativeBridge(
      */
     @android.webkit.JavascriptInterface
     fun reloadDict(): String = runCatching {
+        invalidateLookup()  // 关闭旧 CachedDict
         DictRepository.reset()
         // 重新 resolve（触发从外部存储目录查找）并刷新 bridge 持有的引用
         dict = DictRepository.resolve(context)
@@ -245,8 +266,9 @@ class NativeBridge(
      */
     fun importDictByUri(uri: android.net.Uri): String = try {
         val size = DictRepository.importDictionary(context, uri)
+        invalidateLookup()
         DictRepository.reset()
-        DictRepository.resolve(context)
+        dict = DictRepository.resolve(context)
         ok(JSONObject().put("size", size))
     } catch (e: Exception) {
         error("词典导入失败：${e.message}")

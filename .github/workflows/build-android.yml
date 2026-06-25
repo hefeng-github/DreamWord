@@ -55,13 +55,18 @@ jobs:
             echo "No signing secret found. Release APK will use debug signing."
           fi
 
-      - name: Download RapidOCR Android library (aar) into app/libs
+      - name: Download PP-OCRv6 models into assets/models
+        # 模型不入仓库，编译时从 MaaCommonAssets 下载（PP-OCRv6 small，det+rec 两段式）。
+        # 来源：https://github.com/MaaXYZ/MaaCommonAssets/tree/main/OCR/ppocr_v6/small
+        # 推理用 onnxruntime-android，预处理/后处理在 OnnxOcrEngineImpl 自实现。
         run: |
           set -e
-          mkdir -p android/app/libs
-          curl -fSL -o android/app/libs/OcrLibrary.aar \
-            "https://github.com/RapidAI/RapidOcrAndroidOnnx/releases/download/1.3.0/OcrLibrary-1.3.0-release.aar"
-          ls -lh android/app/libs/OcrLibrary.aar
+          mkdir -p android/app/src/main/assets/models
+          BASE="https://raw.githubusercontent.com/MaaXYZ/MaaCommonAssets/main/OCR/ppocr_v6/small"
+          curl -fSL -o android/app/src/main/assets/models/det.onnx  "$BASE/det.onnx"
+          curl -fSL -o android/app/src/main/assets/models/rec.onnx  "$BASE/rec.onnx"
+          curl -fSL -o android/app/src/main/assets/models/keys.txt  "$BASE/keys.txt"
+          ls -lh android/app/src/main/assets/models/
 
       # 用 tee 把完整输出存到文件，便于失败时上传分析
       - name: Build debug APK

@@ -40,6 +40,34 @@ class DictRepository private constructor(
         }
     }
 
+    /**
+     * 大小写兜底版 getEntryHtml：OCR 文本混合大小写时，精确匹配可能 miss。
+     * 按 [原样, 全小写, 首字母大写] 顺序尝试，命中即返回。
+     * 不改表结构/SQL（避免 COLLATE NOCASE 改库风险），仅在调用层做形态兜底。
+     */
+    fun getEntryHtmlCaseInsensitive(word: String): String? {
+        getEntryHtml(word)?.let { return it }
+        val lower = word.lowercase()
+        if (lower != word) getEntryHtml(lower)?.let { return it }
+        val capitalized = lower.replaceFirstChar { it.uppercase() }
+        if (capitalized != word && capitalized != lower) getEntryHtml(capitalized)?.let { return it }
+        return null
+    }
+
+    /** 大小写兜底版 wordExists（与 getEntryHtmlCaseInsensitive 的形态顺序一致） */
+    fun wordExistsCaseInsensitive(word: String): Boolean =
+        getEntryHtmlCaseInsensitive(word) != null
+
+    /** 解析出真正命中的词典 key（用于 lookup 结果回填），未命中返回 null */
+    fun resolveEntryKey(word: String): String? {
+        if (wordExists(word)) return word
+        val lower = word.lowercase()
+        if (lower != word && wordExists(lower)) return lower
+        val capitalized = lower.replaceFirstChar { it.uppercase() }
+        if (capitalized != word && capitalized != lower && wordExists(capitalized)) return capitalized
+        return null
+    }
+
     /** 对应 Python get_all_entries_html：取该词所有 paraphrase（一词多义） */
     fun getAllEntriesHtml(word: String): List<String> = withDb { db ->
         db.rawQuery(
@@ -81,6 +109,8 @@ class DictRepository private constructor(
     /**
      * 长连接版：在内存中保持一个打开的 SQLiteDatabase，避免反复 open/close。
      * 适合查询密集场景（如拍照批量查词）。调用方负责 close。
+     * 所有方法 synchronized：autoLookup 在 Dispatchers.Default 线程跑，
+     * 与手动查词/状态查询可能并发，需保护底层 SQLiteDatabase。
      */
     fun openCached(): CachedDict = CachedDict(SQLiteDatabase.openDatabase(
         dbFile.absolutePath, null,
@@ -89,18 +119,45 @@ class DictRepository private constructor(
 
     /** 带缓存的连接包装 */
     class CachedDict internal constructor(internal val db: SQLiteDatabase) : AutoCloseable {
-        fun wordExists(word: String): Boolean = db
-            .rawQuery("SELECT entry FROM mdx WHERE entry = ? LIMIT 1", arrayOf(word))
-            .use { it.moveToFirst() }
-        fun getAllEntriesHtml(word: String): List<String> = db
-            .rawQuery("SELECT paraphrase FROM mdx WHERE entry = ?", arrayOf(word))
-            .use { c -> ArrayList<String>(c.count).apply { while (c.moveToNext()) add(c.getString(0)) } }
+        fun wordExists(word: String): Boolean = synchronized(db) {
+            db.rawQuery("SELECT entry FROM mdx WHERE entry = ? LIMIT 1", arrayOf(word))
+                .use { it.moveToFirst() }
+        }
+        fun getEntryHtml(word: String): String? = synchronized(db) {
+            db.rawQuery("SELECT paraphrase FROM mdx WHERE entry = ? LIMIT 1", arrayOf(word))
+                .use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }
+        fun getAllEntriesHtml(word: String): List<String> = synchronized(db) {
+            db.rawQuery("SELECT paraphrase FROM mdx WHERE entry = ?", arrayOf(word))
+                .use { c -> ArrayList<String>(c.count).apply { while (c.moveToNext()) add(c.getString(0)) } }
+        }
         fun getWordEntries(word: String): List<WordEntry> {
             val out = ArrayList<WordEntry>()
             for (html in getAllEntriesHtml(word)) out.addAll(MdxParser.parse(html))
             return out
         }
-        override fun close() = db.close()
+
+        /** 大小写兜底（与 DictRepository 同语义） */
+        fun getEntryHtmlCaseInsensitive(word: String): String? {
+            getEntryHtml(word)?.let { return it }
+            val lower = word.lowercase()
+            if (lower != word) getEntryHtml(lower)?.let { return it }
+            val capitalized = lower.replaceFirstChar { it.uppercase() }
+            if (capitalized != word && capitalized != lower) getEntryHtml(capitalized)?.let { return it }
+            return null
+        }
+        fun wordExistsCaseInsensitive(word: String): Boolean =
+            getEntryHtmlCaseInsensitive(word) != null
+        fun resolveEntryKey(word: String): String? {
+            if (wordExists(word)) return word
+            val lower = word.lowercase()
+            if (lower != word && wordExists(lower)) return lower
+            val capitalized = lower.replaceFirstChar { it.uppercase() }
+            if (capitalized != word && capitalized != lower && wordExists(capitalized)) return capitalized
+            return null
+        }
+
+        override fun close() = synchronized(db) { db.close() }
     }
 
     companion object {
@@ -176,6 +233,21 @@ class DictRepository private constructor(
                     if (n < 16 || !String(header, 0, 15).startsWith("SQLite format 3")) {
                         throw Exception("所选文件不是有效的 SQLite 词典（缺少 SQLite 文件头）")
                     }
+                }
+                // 结构校验：必须有 mdx 表（entry/paraphrase），否则导入后查询才崩
+                val probe = SQLiteDatabase.openDatabase(
+                    tmp.absolutePath, null,
+                    SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS
+                )
+                try {
+                    val hasMdx = probe.rawQuery(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='mdx' LIMIT 1", null
+                    ).use { it.moveToFirst() }
+                    if (!hasMdx) {
+                        throw Exception("这不是 DreamWord 词典（缺少 mdx 表，请选 word_details.db）")
+                    }
+                } finally {
+                    probe.close()
                 }
                 // 替换正式文件
                 if (dest.exists()) dest.delete()

@@ -24,6 +24,10 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
+        // 只打 arm64-v8a（真机）+ x86_64（模拟器），去掉 armeabi-v7a/x86 缩体积
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     // 签名配置：优先环境变量（CI），其次本地 keystore.properties
@@ -77,7 +81,7 @@ android {
         jvmTarget = "17"
     }
 
-    // RapidOcrAndroidOnnx 内部带 native so，需放开打包
+    // onnxruntime-android 带 native so，需放开打包
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -121,9 +125,9 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // ---- OCR：RapidOcrAndroidOnnx（PP-OCRv4，离线，APK 自带模型）----
-    // aar 由 GitHub Actions 编译前从 RapidOcrAndroidOnnx release 自动下载到 app/libs/。
-    // 库主页：https://github.com/RapidAI/RapidOcrAndroidOnnx
-    // 本地开发时，手动从该 release 下载 OcrLibrary-x.x.x-release.aar 放到 app/libs/。
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
+    // ---- OCR：onnxruntime-android + PP-OCRv6 自研管线（det+rec，离线）----
+    // 模型（det.onnx / rec.onnx / keys.txt）由 CI 编译时从 MaaCommonAssets 下载到
+    // app/src/main/assets/models/（不入仓库，本地开发手动 curl 放入，见 assets/models/README.txt）。
+    // 推理用 onnxruntime-android，预处理/后处理（DB 检测 + CTC 识别）在 OnnxOcrEngineImpl 自实现。
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.18.0")
 }

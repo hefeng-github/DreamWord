@@ -16,7 +16,7 @@ WebView 层（assets/web 里的 index.html + app.js + style.css）
 
 | 功能 | 状态 | 说明 |
 |---|---|---|
-| 拍照点词（标记已会词）| ✅ | RapidOCR onnx |
+| 拍照点词（标记已会词）| ✅ | PP-OCRv6 onnx |
 | 手动查词 | ✅ | 本地词典 + 离线/在线消歧 |
 | 拍照查词（生成标注图）| ✅ | 只返回标注图，无 Gcode |
 | 批量导入词库 | ✅ | 兼容 JSON / JSON Lines |
@@ -34,14 +34,22 @@ WebView 层（assets/web 里的 index.html + app.js + style.css）
 - JDK 17（Android Studio 自带）
 - Android SDK Platform 34 + Build-Tools 34.x
 
-### 步骤 1：OCR（全自动，无需手动操作）
+### 步骤 1：OCR（CI 全自动；本地编译需手动放模型）
 
-OCR 用 [RapidOcrAndroidOnnx](https://github.com/RapidAI/RapidOcrAndroidOnnx)（PP-OCRv3，离线）。
+OCR 用 **PP-OCRv6 small onnx**（det+rec 两段式，离线），推理用 [onnxruntime-android](https://github.com/microsoft/onnxruntime)，预处理/后处理在 `OnnxOcrEngineImpl` 自实现（DB 检测后处理 + CTC 识别解码）。
 
-- **CI 编译时**：GitHub Actions 会自动从 RapidOcrAndroidOnnx release 下载预编译 aar（自带模型 + native so）到 `app/libs/`，APK 自带 OCR，**开箱即用**。
-- **本地编译时**：手动从 [Releases](https://github.com/RapidAI/RapidOcrAndroidOnnx/releases) 下载 `OcrLibrary-x.x.x-release.aar`（约 37MB）放到 `android/app/libs/OcrLibrary.aar`。
+模型（det.onnx ~9.4MB / rec.onnx ~20MB / keys.txt ~73KB）取自 [MaaCommonAssets](https://github.com/MaaXYZ/MaaCommonAssets/tree/main/OCR/ppocr_v6/small)，**不入仓库**。
 
-无需单独放置模型文件——aar 内部已打包 det/cls/rec 模型 + 字符表。
+- **CI 编译时**：GitHub Actions 自动用 `curl` 从 MaaCommonAssets 下载这 3 个文件到 `app/src/main/assets/models/`，APK 自带 OCR，**开箱即用**。
+- **本地编译时**：手动执行（在仓库根目录）：
+  ```bash
+  mkdir -p android/app/src/main/assets/models
+  BASE="https://raw.githubusercontent.com/MaaXYZ/MaaCommonAssets/main/OCR/ppocr_v6/small"
+  curl -fSL -o android/app/src/main/assets/models/det.onnx  "$BASE/det.onnx"
+  curl -fSL -o android/app/src/main/assets/models/rec.onnx  "$BASE/rec.onnx"
+  curl -fSL -o android/app/src/main/assets/models/keys.txt  "$BASE/keys.txt"
+  ```
+  （这 3 个文件已被 `.gitignore` 排除，不会误提交。）
 
 ### 步骤 2：词典（App 内手动导入）
 
@@ -168,37 +176,38 @@ android/
 ├── README.md                     # 本文件
 ├── MIGRATION.md                  # PC 版 → 安卓版 的代码映射
 └── app/
-    ├── build.gradle.kts          # 依赖（含 RapidOCR 接入说明）
-    ├── proguard-rules.pro
-    └── src/main/
-        ├── AndroidManifest.xml
-        ├── assets/
-        │   ├── web/              # ★ 前端（改造自 PC 版 static/）
-        │   │   ├── index.html
-        │   │   ├── app.js
-        │   │   └── style.css
-        │   ├── models/           # ★ 放 OCR onnx 模型（det/rec/cls + 字典）
-        │   └── dict/             # （可选）word_details_mini.db
-        ├── java/com/dreamword/app/
-        │   ├── MainActivity.kt           # WebView 壳
-        │   ├── data/
-        │   │   ├── Models.kt             # 数据类（WordEntry/LookupResult/OcrWord）
-        │   │   └── KnownWordsDao.kt      # 已知词库 SQLite
-        │   ├── dict/
-        │   │   ├── MdxParser.kt          # HTML→WordEntry
-        │   │   ├── DictRepository.kt     # 词典 SQLite 访问
-        │   │   ├── InflectionResolver.kt # 形态规则（found→find）
-        │   │   ├── SimilarityScorer.kt   # 离线语境打分
-        │   │   ├── WordLookup.kt         # 查词主流程
-        │   │   └── Disambiguator.kt      # 在线 LLM 消歧
-        │   ├── ocr/
-        │   │   ├── OcrEngine.kt          # OCR 接口 + 工厂
-        │   │   └── RapidOcrEngineImpl.kt # RapidOCR 实现（★ 接入点）
-        │   ├── bridge/
-        │   │   ├── NativeBridge.kt       # @JavascriptInterface 桥
-        │   │   └── AnnotationRenderer.kt # 标注图绘制
-        │   └── ui/settings/SettingsActivity.kt
-        └── res/                          # 资源（图标/主题/设置页）
+        ├── build.gradle.kts          # 依赖（含 onnxruntime-android 接入说明）
+        ├── proguard-rules.pro
+        └── src/main/
+            ├── AndroidManifest.xml
+            ├── assets/
+            │   ├── web/              # ★ 前端（改造自 PC 版 static/）
+            │   │   ├── index.html
+            │   │   ├── app.js
+            │   │   └── style.css
+            │   ├── models/           # ★ 放 PP-OCRv6 onnx 模型（det/rec/keys，CI 下载）
+            │   └── dict/             # （可选）word_details_mini.db
+            ├── java/com/dreamword/app/
+            │   ├── MainActivity.kt           # WebView 壳
+            │   ├── data/
+            │   │   ├── Models.kt             # 数据类（WordEntry/LookupResult/OcrWord）
+            │   │   └── KnownWordsDao.kt      # 已知词库 SQLite
+            │   ├── dict/
+            │   │   ├── MdxParser.kt          # HTML→WordEntry
+            │   │   ├── DictRepository.kt     # 词典 SQLite 访问
+            │   │   ├── InflectionResolver.kt # 形态规则（found→find）
+            │   │   ├── SimilarityScorer.kt   # 离线语境打分
+            │   │   ├── WordLookup.kt         # 查词主流程（大小写兜底 + cached 长连接）
+            │   │   ├── OcrLookupPipeline.kt  # 拍照查词管线（OCR→生词→标注）
+            │   │   └── Disambiguator.kt      # 在线 LLM 消歧
+            │   ├── ocr/
+            │   │   ├── OcrEngine.kt          # OCR 接口 + 工厂
+            │   │   └── OnnxOcrEngineImpl.kt  # PP-OCRv6 onnxruntime 实现（★ 核心管线）
+            │   ├── bridge/
+            │   │   ├── NativeBridge.kt       # @JavascriptInterface 桥
+            │   │   └── AnnotationRenderer.kt # 标注图绘制
+            │   └── ui/settings/SettingsActivity.kt
+            └── res/                          # 资源（图标/主题/设置页）
 ```
 
 ## 许可证
