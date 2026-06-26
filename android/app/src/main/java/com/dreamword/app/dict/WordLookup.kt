@@ -137,11 +137,11 @@ class WordLookup(private val backend: DictBackend) {
         return if (base != null) base to base else word to null
     }
 
-    /** 对应 Python get_base_form_from_db —— 从词典 HTML 的 xref 提取 */
+    /** 对应 Python get_base_form_from_db —— 从词典条目提取 baseForm（v2 读 JSON，v1 解析 HTML） */
     private fun getBaseFormFromDb(word: String): String? {
-        val html = backend.getEntryHtmlCaseInsensitive(word) ?: return null
-        val entries = MdxParser.parse(html)
-        return entries.firstOrNull()?.baseForm
+        // 先用大小写兜底拿到命中的 key，再取该词全部条目的首个 baseForm
+        val key = backend.resolveEntryKey(word) ?: return null
+        return backend.getWordEntries(key).firstOrNull()?.baseForm
     }
 
     /** 对应 Python get_word_base_form —— DB 链接优先，否则规则推断 */
