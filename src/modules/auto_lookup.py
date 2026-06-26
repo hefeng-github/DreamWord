@@ -32,6 +32,15 @@ from src.modules.calibration import Calibrator, ImageUnwarp
 from src.modules.writer import WriterMachine
 from src.core import Stroke, GcodePoint
 
+# 已会词库表结构（PC/Android 共用同一份定义，见 android KnownWordsDao.kt）
+KNOWN_WORDS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS known_words (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    word TEXT UNIQUE NOT NULL,
+    add_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
 
 @dataclass
 class OCRResult:
@@ -77,14 +86,10 @@ class KnownWordsDatabase:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # 创建表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS known_words (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                word TEXT UNIQUE NOT NULL,
-                add_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+        # 创建表（schema 定义见模块级 KNOWN_WORDS_SCHEMA）
+        cursor.execute(KNOWN_WORDS_SCHEMA)
+        # 标记已会词库版本号（为未来加列迁移预留）
+        cursor.execute('PRAGMA user_version = 1')
 
         conn.commit()
         conn.close()

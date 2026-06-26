@@ -18,6 +18,8 @@ from datetime import datetime
 
 import requests
 
+from src.modules.auto_lookup import KNOWN_WORDS_SCHEMA
+
 TOKEN_FILE = "onedrive_token.json"
 BACKUP_FOLDER = "Apps/DreamWord"
 
@@ -339,7 +341,7 @@ class OneDriveBackup:
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
-            cursor.execute('CREATE TABLE IF NOT EXISTS known_words (id INTEGER PRIMARY KEY AUTOINCREMENT, word TEXT UNIQUE NOT NULL, add_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP)')
+            cursor.execute(KNOWN_WORDS_SCHEMA)
             cursor.execute('DELETE FROM known_words')
             for word in sorted(words):
                 cursor.execute('INSERT OR IGNORE INTO known_words (word) VALUES (?)', (word,))

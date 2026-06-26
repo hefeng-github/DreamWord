@@ -11,6 +11,9 @@ import android.database.sqlite.SQLiteOpenHelper
  * 表结构与 PC 版完全一致（known_words: id / word / add_time），
  * 因此 PC 版导出的 known_words.db 可以直接拷贝到安卓上读取/合并。
  * 单词统一小写存储（与 PC 版一致，INSERT OR IGNORE 去重）。
+ *
+ * DB_VERSION=2：表结构未变，仅把版本号机制落实到位（为未来加列迁移预留）。
+ * v1→v2 无 schema 变化，onUpgrade 直接落地。
  */
 class KnownWordsDao(context: Context) : SQLiteOpenHelper(
     context, DB_NAME, null, DB_VERSION
@@ -19,17 +22,14 @@ class KnownWordsDao(context: Context) : SQLiteOpenHelper(
     init { writableDatabase } // 触发建表
 
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("""
-            CREATE TABLE IF NOT EXISTS known_words (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                word TEXT UNIQUE NOT NULL,
-                add_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """.trimIndent())
+        db.execSQL(KNOWN_WORDS_SCHEMA)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // 未来加列时在此迁移；当前仅一版
+        // v1→v2：表结构无变化（仅引入版本号机制），无需迁移
+        if (oldVersion <= 1 && newVersion >= 2) {
+            // 已由 onCreate 建表，此处 no-op
+        }
     }
 
     fun addWord(word: String) {
@@ -79,6 +79,15 @@ class KnownWordsDao(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DB_NAME = "known_words.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
+
+        // 已会词库表结构（PC/Android 共用同一份定义，见 src/modules/auto_lookup.py 的 KNOWN_WORDS_SCHEMA）
+        private const val KNOWN_WORDS_SCHEMA = """
+            CREATE TABLE IF NOT EXISTS known_words (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word TEXT UNIQUE NOT NULL,
+                add_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """.trimIndent()
     }
 }

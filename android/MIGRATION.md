@@ -17,10 +17,9 @@
 |---|---|
 | `MDXParser` (34-233) HTML 状态机 | `dict/MdxParser.kt`（改用 Jsoup DOM 遍历，等价逻辑） |
 | `word_exists` (395-402) | `dict/DictRepository.kt` `wordExists` |
-| `get_entry_html` (404-411) | `DictRepository.kt` `getEntryHtml` |
-| `get_all_entries_html` (413-420) | `DictRepository.kt` `getAllEntriesHtml` |
-| `get_word_entries` (427-434) | `DictRepository.kt` `getWordEntries` |
-| `get_base_form_from_db` (436-446) | `dict/WordLookup.kt` `getBaseFormFromDb` |
+| `get_entry_html` (404-411) | `DictRepository.kt` `getEntryHtml`（v2 返回 data JSON，v1 返回 paraphrase HTML） |
+| `get_word_entries` (427-434) | `DictRepository.kt` `getWordEntries`（v2 反序列化 JSON，v1 调 MdxParser） |
+| `get_base_form_from_db` (436-446) | `dict/WordLookup.kt` `getBaseFormFromDb`（v2 读 JSON.base_form，v1 解析 HTML） |
 | `get_word_base_form_simple` (448-519) | `dict/InflectionResolver.kt` `getWordBaseFormSimple` |
 | **`_infer_inflection_base` (909-972)** ★变形词修复★ | `InflectionResolver.kt` `inferInflectionBase`（special_cases 字典 1:1 搬移） |
 | `_resolve_word_form` (880-907) | `WordLookup.kt` `resolveWordForm` |
@@ -39,6 +38,23 @@
 | PC 版 `src/modules/auto_lookup.py` | 安卓版 |
 |---|---|
 | `KnownWordsDatabase` (62-170) 全部方法 | `data/KnownWordsDao.kt`（表结构一致，PC 的 known_words.db 可直接读） |
+
+> 表结构定义已抽成共享常量：PC 在 `auto_lookup.py` 的 `KNOWN_WORDS_SCHEMA`，安卓在 `KnownWordsDao.kt` 的 `KNOWN_WORDS_SCHEMA`。`DB_VERSION=2`（PC 端 `PRAGMA user_version=1`），表结构未变，仅落实版本号机制。
+
+## 词典数据库格式（v1 → v2 重构）
+
+词典 DB 已从 v1 单表升级为 v2 三表结构（PC/Android 自动按表是否存在切换）：
+
+| 格式 | 表结构 | 说明 |
+|---|---|---|
+| **v2**（推荐） | `words(entry PK, data BLOB)` + `redirects(entry PK, target)` + `metadata(key PK, html)` | `data` 是预解析 JSON（WordEntry 字段数组），查词零 HTML 解析。文件 421MB → 93MB |
+| v1（旧，兼容） | `mdx(entry TEXT, paraphrase TEXT)` | `paraphrase` 是 HTML，运行时用 MdxParser 解析 |
+
+- **生成 v2 库**：`python tools/build_dict_db.py`（读 `databases/word_details.db` → 写 `word_details_v2.db`）
+- **JSON 字段**：`{headword, phonetics, definitions, chinese_definitions, examples, base_form, pos}`，与 `WordEntry` 1:1 对应（由同一个 `MDXParser` 在建库时一次性提取）
+- **跳转**：原 22 万条 `@@@LINK=target` 文本占位 → `redirects(entry, target)`，查词时 `DictRepository.resolveRedirect` 递归解析（≤5 层）
+- **导入校验**：`DictRepository.importDictionary` 同时接受 v2（words 表）和 v1（mdx 表），按探测结果落盘为 `word_details_v2.db` 或 `word_details.db`
+- **词义匹配/词形还原/书写不受影响**：均建立在 `WordEntry` 字段之上，v2 只是把这些字段预解析成 JSON 存好，字段内容完全一致
 
 ## OCR
 

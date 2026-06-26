@@ -12,6 +12,7 @@
 import sqlite3
 import os
 import re
+import json
 import hashlib
 import pickle
 from html.parser import HTMLParser
@@ -241,7 +242,11 @@ class WordLookup:
 
     def __init__(self, use_semantic_search: bool = True, model_name: str = None):
         self.db_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'databases')
-        self.word_details_path = os.path.join(self.db_dir, 'word_details.db')
+        # 新词典格式（v2 三表：words/redirects/metadata，预解析 JSON）。
+        # 优先用 v2；不存在时回退到旧版 word_details.db（mdx 单表），保证过渡期可用。
+        v2 = os.path.join(self.db_dir, 'word_details_v2.db')
+        self.word_details_path = v2 if os.path.exists(v2) else os.path.join(self.db_dir, 'word_details.db')
+        self.use_v2 = os.path.exists(v2)
 
         self.use_semantic_search = use_semantic_search and SENTENCE_TRANSFORMER_AVAILABLE
         self.model_name = model_name or self.DEFAULT_MODEL
@@ -393,7 +398,14 @@ class WordLookup:
             conn.close()
 
     def word_exists(self, word: str) -> bool:
-        """检查单词是否存在于数据库中"""
+        """检查单词是否存在于数据库中（v2: words 或 redirects 表）"""
+        if self.use_v2:
+            row = self._execute_query(
+                'SELECT 1 FROM words WHERE entry = ? '
+                'UNION ALL SELECT 1 FROM redirects WHERE entry = ? LIMIT 1',
+                (word, word), fetch_one=True
+            )
+            return row is not None
         result = self._execute_query(
             'SELECT entry FROM mdx WHERE entry = ?',
             (word,),
@@ -402,7 +414,9 @@ class WordLookup:
         return result is not None
 
     def get_entry_html(self, word: str) -> Optional[str]:
-        """获取单词的 HTML 内容"""
+        """获取单词的 HTML 内容（v2 下仅用于旧调用兼容，未使用）"""
+        if self.use_v2:
+            return None
         result = self._execute_query(
             'SELECT paraphrase FROM mdx WHERE entry = ? LIMIT 1',
             (word,),
@@ -411,7 +425,9 @@ class WordLookup:
         return result[0] if result else None
 
     def get_all_entries_html(self, word: str) -> List[str]:
-        """获取单词的所有 HTML 内容"""
+        """获取单词的所有 HTML 内容（v2 下返回空，调用方应改用 get_word_entries）"""
+        if self.use_v2:
+            return []
         results = self._execute_query(
             'SELECT paraphrase FROM mdx WHERE entry = ?',
             (word,),
@@ -420,12 +436,55 @@ class WordLookup:
         return [result[0] for result in results] if results else []
 
     def parse_entry(self, html_content: str) -> List[WordEntry]:
-        """解析 HTML 内容为单词条目"""
+        """解析 HTML 内容为单词条目（仅旧版需要，v2 已预解析）"""
         parser = MDXParser()
         return parser.parse(html_content)
 
+    def _resolve_redirect(self, word: str) -> Optional[str]:
+        """v2: 解析 @@@LINK 跳转，返回最终目标 entry（最多 5 层，防循环）"""
+        if not self.use_v2:
+            return None
+        current = word
+        for _ in range(5):
+            row = self._execute_query(
+                'SELECT target FROM redirects WHERE entry = ?',
+                (current,), fetch_one=True
+            )
+            if not row:
+                return current  # 不是跳转，返回自身（调用方会再查 words）
+            current = row[0]
+        return current
+
+    def _data_to_entries(self, data: bytes) -> List[WordEntry]:
+        """v2: 把 words.data 的 JSON 字节反序列化为 WordEntry 列表"""
+        items = json.loads(data)
+        out = []
+        for it in items:
+            out.append(WordEntry(
+                headword=it.get('headword'),
+                phonetics=it.get('phonetics') or [],
+                definitions=it.get('definitions') or [],
+                chinese_definitions=it.get('chinese_definitions') or [],
+                examples=it.get('examples') or [],
+                base_form=it.get('base_form'),
+                pos=it.get('pos'),
+            ))
+        return out
+
     def get_word_entries(self, word: str) -> List[WordEntry]:
-        """获取单词的所有条目"""
+        """获取单词的所有条目（v2: 直接读预解析 JSON，零 HTML 解析）"""
+        if self.use_v2:
+            target = self._resolve_redirect(word)
+            if target is None:
+                return []
+            row = self._execute_query(
+                'SELECT data FROM words WHERE entry = ?',
+                (target,), fetch_one=True
+            )
+            if not row:
+                return []
+            return self._data_to_entries(row[0])
+        # 旧版：读 HTML 再解析
         html_contents = self.get_all_entries_html(word)
         entries = []
         for html_content in html_contents:
@@ -435,14 +494,27 @@ class WordLookup:
 
     def get_base_form_from_db(self, word: str) -> Optional[str]:
         """从数据库获取单词的基本形式"""
+        if self.use_v2:
+            target = self._resolve_redirect(word)
+            if target is None:
+                return None
+            row = self._execute_query(
+                'SELECT data FROM words WHERE entry = ?',
+                (target,), fetch_one=True
+            )
+            if not row:
+                return None
+            entries = self._data_to_entries(row[0])
+            if entries and entries[0].base_form:
+                return entries[0].base_form
+            return None
+        # 旧版
         html_content = self.get_entry_html(word)
         if not html_content:
             return None
-
         entries = self.parse_entry(html_content)
         if entries and entries[0].base_form:
             return entries[0].base_form
-
         return None
 
     def get_word_base_form_simple(self, word: str) -> Optional[str]:
